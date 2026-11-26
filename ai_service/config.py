@@ -33,4 +33,16 @@ class Settings(BaseModel):
     # Cross-encoder model
     RERANKER_MODEL_NAME: str = os.getenv("RERANKER_MODEL_NAME", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
+    # Ingestion & PDF Extraction Settings
+    MAX_PDF_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MB
+    ALLOWED_PDF_EXTENSIONS: tuple = (".pdf",)
+
+    # OCR & Scanned Detection Settings
+    OCR_MIN_DIGITAL_CHARS: int = 100
+    OCR_IMAGE_COVERAGE_THRESHOLD: float = 0.40
+    OCR_MIN_BLOCK_COUNT: int = 3
+    OCR_DPI: int = 200
+    OCR_LANG: str = os.getenv("OCR_LANG", "en")
+    OCR_USE_ANGLE_CLS: bool = True
+
 settings = Settings()

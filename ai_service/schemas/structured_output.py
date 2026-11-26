@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DecisionType(str, Enum):
@@ -30,6 +30,12 @@ class PolicyChunk(BaseModel):
     bm25_score: Optional[float] = None
     rrf_score: Optional[float] = None
     rerank_score: Optional[float] = None
+    # Provenance extensions (backward-compatible, optional)
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    source_block_ids: List[str] = Field(default_factory=list)
+    table_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class CitationItem(BaseModel):
@@ -38,6 +44,17 @@ class CitationItem(BaseModel):
     clause: str
     category: Optional[str] = None
     snippet: Optional[str] = None
+    page_end: Optional[int] = None
+    page_range: Optional[str] = None
+
+    @model_validator(mode="after")
+    def set_page_range(self) -> "CitationItem":
+        if self.page_range is None:
+            if self.page_end is not None and self.page_end != self.page:
+                self.page_range = f"{self.page}-{self.page_end}"
+            else:
+                self.page_range = str(self.page)
+        return self
 
 
 class AtomicClaim(BaseModel):

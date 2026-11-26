@@ -9,6 +9,20 @@ from .structured_output import (
     StructuredAnswerResponse,
 )
 from .query import AskQueryRequest, ScopeContext
+from .ingestion import (
+    PageClassification,
+    ExtractionMethod,
+    BoundingBox,
+    ExtractedSpan,
+    ExtractedLine,
+    ExtractedBlock,
+    PageDetectionResult,
+    OCRTextBox,
+    OCRResult,
+    ExtractedPage,
+    DocumentMetadata,
+    ExtractedDocument,
+)
 
 __all__ = [
     "DecisionType",
@@ -21,4 +35,16 @@ __all__ = [
     "StructuredAnswerResponse",
     "AskQueryRequest",
     "ScopeContext",
+    "PageClassification",
+    "ExtractionMethod",
+    "BoundingBox",
+    "ExtractedSpan",
+    "ExtractedLine",
+    "ExtractedBlock",
+    "PageDetectionResult",
+    "OCRTextBox",
+    "OCRResult",
+    "ExtractedPage",
+    "DocumentMetadata",
+    "ExtractedDocument",
 ]

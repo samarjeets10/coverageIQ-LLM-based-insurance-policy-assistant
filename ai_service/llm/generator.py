@@ -15,8 +15,10 @@ class GroundedGenerator:
     def _format_evidence_chunks(self, chunks: List[PolicyChunk]) -> str:
         lines = []
         for i, c in enumerate(chunks, start=1):
+            p_end = c.page_end or (c.metadata.get("page_end") if c.metadata else None)
+            p_display = f"{c.page_number}-{p_end}" if p_end and p_end != c.page_number else str(c.page_number)
             lines.append(
-                f"[{i}] CHUNK_ID: {c.chunk_id} | PAGE: {c.page_number} | "
+                f"[{i}] CHUNK_ID: {c.chunk_id} | PAGE: {p_display} | "
                 f"CLAUSE: {c.clause_ref} | CATEGORY: {c.category.value}\n"
                 f"CONTENT: {c.content_text}\n"
             )
@@ -53,10 +55,12 @@ class GroundedGenerator:
         citations: List[CitationItem] = []
         for cid in cited_chunks:
             chunk = chunk_lookup[cid]
+            p_end = chunk.page_end or (chunk.metadata.get("page_end") if chunk.metadata else None)
             citations.append(
                 CitationItem(
                     chunk_id=chunk.chunk_id,
                     page=chunk.page_number,
+                    page_end=p_end if p_end and p_end != chunk.page_number else None,
                     clause=chunk.clause_ref,
                     category=chunk.category.value,
                     snippet=chunk.content_text[:160] + "..." if len(chunk.content_text) > 160 else chunk.content_text
