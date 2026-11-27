@@ -37,6 +37,14 @@ from ai_service.recommendation.service import ModelState, load_model_state  # no
 from ai_service.recommendation.settings import Settings, get_settings  # noqa: E402
 
 
+def _extract_request_id_headers(raw_request_id: str | None) -> dict[str, str] | None:
+    """Return sanitized X-Request-ID response headers when a non-blank ID is supplied."""
+    if raw_request_id is None:
+        return None
+    cleaned = raw_request_id.strip()[:128]
+    return {"X-Request-ID": cleaned} if cleaned else None
+
+
 class RequestBodyLimitMiddleware:
     """ASGI middleware enforcing a bounded HTTP request payload size before JSON parsing."""
 
@@ -49,6 +57,11 @@ class RequestBodyLimitMiddleware:
         return {"type": "http.disconnect"}
 
     async def _send_too_large(self, scope: dict[str, Any], send: Any) -> None:
+        raw_req_id: str | None = None
+        for header_name, header_val in scope.get("headers", []):
+            if header_name.lower() == b"x-request-id":
+                raw_req_id = header_val.decode("latin-1", errors="ignore")
+                break
         response = JSONResponse(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             content={
@@ -56,6 +69,7 @@ class RequestBodyLimitMiddleware:
                     f"Request payload exceeds maximum allowed size of {self.max_bytes} bytes."
                 )
             },
+            headers=_extract_request_id_headers(raw_req_id),
         )
         await response(scope, self._empty_receive, send)
 
@@ -236,7 +250,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     def handle_request_validation_error(
-        _request: Request,
+        request: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
         """Convert Pydantic validation errors (including NaN/Inf inputs) to HTTP 422 safely."""
@@ -244,11 +258,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": safe_errors},
+            headers=_extract_request_id_headers(request.headers.get("X-Request-ID")),
         )
 
     @app.exception_handler(SQLAlchemyError)
     def handle_sqlalchemy_error(request: Request, _exc: SQLAlchemyError) -> JSONResponse:
         """Convert unhandled DB connection/dependency errors into controlled HTTP 503."""
+        req_headers = _extract_request_id_headers(request.headers.get("X-Request-ID"))
         if request.url.path in ("/health", "/ai/health"):
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -257,10 +273,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     _model_warmed_up_flag(request),
                     include_upstream=(request.url.path == "/ai/health"),
                 ),
+                headers=req_headers,
             )
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"detail": "PostgreSQL database connection is unavailable."},
+            headers=req_headers,
         )
 
     @app.get(
