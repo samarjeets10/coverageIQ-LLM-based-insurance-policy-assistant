@@ -1,0 +1,1112 @@
+# CoverageIQ AI Service OpenAPI Contract (Module M5 / 6A)
+# Generated automatically from FastAPI app.openapi() — do not edit manually.
+# Regenerate via: python -m ai_service.recommendation.openapi_export
+
+openapi: 3.1.0
+info:
+  title: CoverageIQ AI Service
+  description: 'Unified CoverageIQ Python AI Service housing Evidence-Grounded Policy Q&A (Hybrid Search,
+    Cross-Encoder Reranker, Evaluator Retry Loop) and Policy Recommendation (Module M5 / 6A: PostgreSQL
+    catalog filtering, 59-feature engineering, and LightGBM / Weighted ranking).'
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      tags:
+      - health
+      summary: Health Check
+      description: Report M5 recommendation health, PostgreSQL readiness, and model state.
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: Service healthy and PostgreSQL reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: PostgreSQL database connection is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ai/health:
+    get:
+      tags:
+      - Health
+      summary: Ai Health Check
+      description: Unified AI health endpoint combining upstream M3 telemetry and M5 DB readiness.
+      operationId: ai_health_check_ai_health_get
+      responses:
+        '200':
+          description: Unified AI service health across M3 Q&A and M5 recommendation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIHealthResponse'
+        '503':
+          description: PostgreSQL database connection is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIHealthResponse'
+  /ai/ask:
+    post:
+      tags:
+      - Policy Q&A & Verification
+      summary: Query insurance policy with evidence grounding & evaluator retry loop
+      description: 'Module 4 & 5 (6C Pipeline):
+
+        - Hybrid Retrieval (Vector + BM25)
+
+        - Cross-Encoder Reranker
+
+        - Grounded LLM Prompting (''NO EVIDENCE = NO CLAIM'')
+
+        - Evaluator Agent Verification (5 dimensions)
+
+        - Closed Retry Loop (up to 2 retries)'
+      operationId: ask_coverage_query_ai_ask_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StructuredAnswerResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /ai/recommend:
+    post:
+      tags:
+      - recommendation
+      summary: Recommend policies (Internal AI service contract alias)
+      description: Internal Node-to-Python recommendation alias sharing exact authentication, filtering,
+        scoring, and warning contracts with /api/v1/recommend.
+      operationId: recommend_policies_ai_recommend_post
+      security:
+      - ServiceTokenAuth: []
+      parameters:
+      - name: X-Request-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Request-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendResponse'
+        '401':
+          description: Invalid or missing X-Service-Token header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '413':
+          description: Request JSON body exceeds configured byte size limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '422':
+          description: Validation error on user profile, nested scope, or resource limits.
+        '500':
+          description: Unexpected feature construction, catalog integrity, or scoring error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '501':
+          description: Requested ranking_model (e.g., 'xgboost') is not yet implemented.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '503':
+          description: LightGBM artifacts unavailable/corrupt or PostgreSQL catalog unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+  /api/v1/recommend:
+    post:
+      tags:
+      - recommendation
+      summary: Recommend policies (Final Design Report endpoint)
+      description: Evaluates candidate policies from PostgreSQL using deterministic Stage 4 hard eligibility
+        filters, computes the 59-column Stage 5 feature matrix on eligible candidates only, and ranks
+        Top-N policies via LightGBM ('auto'/'lightgbm') or transparent weighted scoring ('weighted').
+        Requires Node.js M1 gateway authentication (`X-Service-Token`) in non-development environments;
+        private user uploads (`owner_user_id IS NOT NULL`) are never returned regardless of `scope`.
+      operationId: recommend_policies_api_v1_recommend_post
+      security:
+      - ServiceTokenAuth: []
+      parameters:
+      - name: X-Request-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Request-Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendResponse'
+        '401':
+          description: Invalid or missing X-Service-Token header.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '413':
+          description: Request JSON body exceeds configured byte size limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '422':
+          description: Validation error on user profile, nested scope, or resource limits.
+        '500':
+          description: Unexpected feature construction, catalog integrity, or scoring error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '501':
+          description: Requested ranking_model (e.g., 'xgboost') is not yet implemented.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+        '503':
+          description: LightGBM artifacts unavailable/corrupt or PostgreSQL catalog unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetailResponse'
+components:
+  schemas:
+    AIHealthResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+        status:
+          type: string
+          enum:
+          - healthy
+          - unhealthy
+          title: Status
+        services:
+          additionalProperties:
+            type: string
+          type: object
+          title: Services
+        database:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Database
+        readiness:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Readiness
+        model_ready:
+          type: boolean
+          title: Model Ready
+        model_warmed_up:
+          type: boolean
+          title: Model Warmed Up
+        service:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Service
+        database_mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Database Mode
+        reranker_model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reranker Model
+        retrieval:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Retrieval
+        evaluator:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Evaluator
+      type: object
+      required:
+      - success
+      - status
+      - services
+      - model_ready
+      - model_warmed_up
+      title: AIHealthResponse
+      description: Unified /ai/health response combining M3 Q&A telemetry and M5 readiness.
+    AskQueryRequest:
+      properties:
+        policy_id:
+          type: string
+          title: Policy Id
+          description: Target policy ID to query against
+        question:
+          type: string
+          minLength: 3
+          title: Question
+          description: Natural language question from policyholder
+        session_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Session Context
+          description: Optional conversational history context
+        scope:
+          anyOf:
+          - $ref: '#/components/schemas/ScopeContext'
+          - type: 'null'
+          description: Trusted security scope from Node.js gateway
+      type: object
+      required:
+      - policy_id
+      - question
+      title: AskQueryRequest
+    CitationItem:
+      properties:
+        chunk_id:
+          type: string
+          title: Chunk Id
+        page:
+          type: integer
+          title: Page
+        clause:
+          type: string
+          title: Clause
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+        snippet:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Snippet
+      type: object
+      required:
+      - chunk_id
+      - page
+      - clause
+      title: CitationItem
+    DecisionType:
+      type: string
+      enum:
+      - COVERED
+      - NOT COVERED
+      - CONDITIONAL
+      - INSUFFICIENT EVIDENCE
+      title: DecisionType
+    ErrorDetailResponse:
+      properties:
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: ErrorDetailResponse
+      description: Standard FastAPI error payload schema for documented HTTP error responses.
+    FilterEliminationReason:
+      properties:
+        policy_id:
+          type: string
+          title: Policy Id
+        policy_name:
+          type: string
+          title: Policy Name
+        rule:
+          type: string
+          title: Rule
+        reason:
+          type: string
+          title: Reason
+        rule_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Rule Id
+        expected:
+          title: Expected
+        actual:
+          title: Actual
+      type: object
+      required:
+      - policy_id
+      - policy_name
+      - rule
+      - reason
+      title: FilterEliminationReason
+      description: Audit record explaining why a candidate policy failed deterministic filtering.
+    FilterFailureDetail:
+      properties:
+        rule_id:
+          type: string
+          title: Rule Id
+        message:
+          type: string
+          title: Message
+        expected:
+          title: Expected
+        actual:
+          title: Actual
+      type: object
+      required:
+      - rule_id
+      - message
+      title: FilterFailureDetail
+      description: Structured explanation for a single failed hard-filter rule.
+    FilterReport:
+      properties:
+        status:
+          type: string
+          enum:
+          - ELIGIBLE_CANDIDATES_FOUND
+          - NO_MATCHING_POLICIES
+          title: Status
+          default: NO_MATCHING_POLICIES
+        total_candidates:
+          type: integer
+          minimum: 0.0
+          title: Total Candidates
+        passed_count:
+          type: integer
+          minimum: 0.0
+          title: Passed Count
+        eliminated_count:
+          type: integer
+          minimum: 0.0
+          title: Eliminated Count
+        eliminations:
+          items:
+            $ref: '#/components/schemas/FilterEliminationReason'
+          type: array
+          title: Eliminations
+        policy_evaluations:
+          items:
+            $ref: '#/components/schemas/PolicyFilterEvaluation'
+          type: array
+          title: Policy Evaluations
+      type: object
+      required:
+      - total_candidates
+      - passed_count
+      - eliminated_count
+      title: FilterReport
+      description: Summary of deterministic hard-filtering results (FR-REC-05).
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+        status:
+          type: string
+          enum:
+          - healthy
+          - unhealthy
+          title: Status
+        services:
+          additionalProperties:
+            type: string
+          type: object
+          title: Services
+        database:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Database
+        readiness:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Readiness
+        model_ready:
+          type: boolean
+          title: Model Ready
+        model_warmed_up:
+          type: boolean
+          title: Model Warmed Up
+      type: object
+      required:
+      - success
+      - status
+      - services
+      - model_ready
+      - model_warmed_up
+      title: HealthResponse
+      description: Operational readiness & PostgreSQL schema status response for /health endpoints.
+    PolicyFilterEvaluation:
+      properties:
+        policy_id:
+          type: string
+          title: Policy Id
+        policy_name:
+          type: string
+          title: Policy Name
+        policy_type:
+          type: string
+          title: Policy Type
+        is_eligible:
+          type: boolean
+          title: Is Eligible
+        failed_filters:
+          items:
+            $ref: '#/components/schemas/FilterFailureDetail'
+          type: array
+          title: Failed Filters
+        passed_filters:
+          items:
+            type: string
+          type: array
+          title: Passed Filters
+        elimination_reasons:
+          items:
+            type: string
+          type: array
+          title: Elimination Reasons
+      type: object
+      required:
+      - policy_id
+      - policy_name
+      - policy_type
+      - is_eligible
+      title: PolicyFilterEvaluation
+      description: Complete deterministic hard-filter evaluation for one candidate policy.
+    ProfileCompleteness:
+      properties:
+        is_complete:
+          type: boolean
+          title: Is Complete
+        missing_fields:
+          items:
+            type: string
+          type: array
+          title: Missing Fields
+        applied_assumptions:
+          additionalProperties: true
+          type: object
+          title: Applied Assumptions
+        income_distribution_mismatch_risk:
+          type: boolean
+          title: Income Distribution Mismatch Risk
+          default: false
+      type: object
+      required:
+      - is_complete
+      title: ProfileCompleteness
+      description: Explicit completeness & assumption audit for optional personalization fields.
+    RecommendRequest:
+      properties:
+        profile:
+          $ref: '#/components/schemas/UserProfileRequest'
+        scope:
+          anyOf:
+          - $ref: '#/components/schemas/TrustedScope'
+          - type: 'null'
+        top_n:
+          type: integer
+          maximum: 20.0
+          minimum: 1.0
+          title: Top N
+          default: 5
+        ranking_model:
+          type: string
+          enum:
+          - auto
+          - weighted
+          - lightgbm
+          - xgboost
+          title: Ranking Model
+          default: auto
+      additionalProperties: false
+      type: object
+      required:
+      - profile
+      title: RecommendRequest
+      description: Unified recommendation payload supporting nested or flat profile payloads.
+      examples:
+      - profile:
+          age: 32
+          budget_max: 25000
+          coverage_mode: individual
+          min_sum_insured: 500000
+          policy_type: health
+          risk_preference: balanced
+        ranking_model: auto
+        top_n: 5
+    RecommendResponse:
+      properties:
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+        status:
+          type: string
+          enum:
+          - RECOMMENDATIONS_READY
+          - NO_MATCHING_POLICIES
+          title: Status
+        recommendations:
+          items:
+            $ref: '#/components/schemas/RecommendedPolicy'
+          type: array
+          title: Recommendations
+        filter_report:
+          $ref: '#/components/schemas/FilterReport'
+        model_used:
+          type: string
+          title: Model Used
+        model_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Version
+        feature_schema_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Feature Schema Version
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+        profile_completeness:
+          anyOf:
+          - $ref: '#/components/schemas/ProfileCompleteness'
+          - type: 'null'
+      type: object
+      required:
+      - status
+      - filter_report
+      - model_used
+      title: RecommendResponse
+      description: Structured recommendation response aligned with Architecture §3.10.
+      examples:
+      - feature_schema_version: 1.0.0
+        filter_report:
+          eliminated_count: 1
+          eliminations: []
+          passed_count: 3
+          policy_evaluations: []
+          status: ELIGIBLE_CANDIDATES_FOUND
+          total_candidates: 4
+        model_used: coverageiq_lightgbm_ranker
+        model_version: 0.1.0
+        profile_completeness:
+          applied_assumptions: {}
+          income_distribution_mismatch_risk: false
+          is_complete: true
+          missing_fields: []
+        recommendations:
+        - annual_premium_max: 18000.0
+          annual_premium_min: 12000.0
+          citations: []
+          feature_breakdown:
+            affordability_score: 0.52
+          insurer_name: ArogyaShield General Insurance
+          key_highlights:
+          - 'Cashless network: 8,500 hospitals/garages'
+          model_used: coverageiq_lightgbm_ranker
+          policy_id: 11111111-1111-1111-1111-111111111111
+          policy_name: ArogyaCare Prime Health
+          policy_type: health
+          rank: 1
+          score: 2.418
+          sum_insured_max: 1500000.0
+        request_id: req-0001
+        status: RECOMMENDATIONS_READY
+        warnings: []
+    RecommendedPolicy:
+      properties:
+        policy_id:
+          type: string
+          title: Policy Id
+        policy_name:
+          type: string
+          title: Policy Name
+        insurer_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Insurer Name
+        policy_type:
+          type: string
+          title: Policy Type
+        rank:
+          type: integer
+          minimum: 1.0
+          title: Rank
+        score:
+          type: number
+          title: Score
+        model_used:
+          type: string
+          title: Model Used
+        annual_premium_min:
+          type: number
+          title: Annual Premium Min
+        annual_premium_max:
+          type: number
+          title: Annual Premium Max
+        sum_insured_max:
+          type: number
+          title: Sum Insured Max
+        key_highlights:
+          items:
+            type: string
+          type: array
+          title: Key Highlights
+        feature_breakdown:
+          additionalProperties:
+            type: number
+          type: object
+          title: Feature Breakdown
+        citations:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Citations
+      type: object
+      required:
+      - policy_id
+      - policy_name
+      - policy_type
+      - rank
+      - score
+      - model_used
+      - annual_premium_min
+      - annual_premium_max
+      - sum_insured_max
+      title: RecommendedPolicy
+      description: Single ranked policy entry in Top-N recommendations.
+    ScopeContext:
+      properties:
+        user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Id
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+          default: user
+        owner_scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner Scope
+      type: object
+      title: ScopeContext
+    StructuredAnswerResponse:
+      properties:
+        query:
+          type: string
+          title: Query
+        decision:
+          $ref: '#/components/schemas/DecisionType'
+        confidence_score:
+          type: number
+          title: Confidence Score
+        conditions:
+          items:
+            type: string
+          type: array
+          title: Conditions
+        reason:
+          type: string
+          title: Reason
+        citations:
+          items:
+            $ref: '#/components/schemas/CitationItem'
+          type: array
+          title: Citations
+        evaluator_status:
+          type: string
+          title: Evaluator Status
+        retry_count:
+          type: integer
+          title: Retry Count
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      required:
+      - query
+      - decision
+      - confidence_score
+      - reason
+      - evaluator_status
+      - retry_count
+      title: StructuredAnswerResponse
+    TrustedScope:
+      properties:
+        user_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: User Id
+        role:
+          type: string
+          enum:
+          - user
+          - organization
+          - admin
+          title: Role
+          default: user
+        owner_scope:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Owner Scope
+      additionalProperties: false
+      type: object
+      title: TrustedScope
+      description: "Trusted identity scope forwarded from the Node.js M1 gateway (Architecture §2A).\n\
+        \nSecurity boundary:\n- The Node.js M1 authentication gateway owns user JWT verification and RBAC\
+        \ role\n  attestation; Python NEVER treats a raw browser/client-supplied scope as authentic\n\
+        \  without verifying ``X-Service-Token`` in non-development environments.\n- Private user-uploaded\
+        \ policies (``owner_user_id IS NOT NULL``) remain strictly\n  excluded by M5 recommendation queries\
+        \ regardless of scope."
+    UserProfileRequest:
+      properties:
+        policy_type:
+          type: string
+          enum:
+          - health
+          - car
+          - life
+          - term
+          title: Policy Type
+        age:
+          type: integer
+          maximum: 120.0
+          minimum: 0.0
+          title: Age
+        budget_min:
+          type: number
+          minimum: 0.0
+          title: Budget Min
+          default: 0.0
+        budget_max:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Budget Max
+        applicant_type:
+          type: string
+          maxLength: 50
+          minLength: 1
+          title: Applicant Type
+          default: salaried
+        coverage_mode:
+          type: string
+          enum:
+          - individual
+          - family_floater
+          title: Coverage Mode
+          default: individual
+        family_size:
+          type: integer
+          maximum: 15.0
+          minimum: 1.0
+          title: Family Size
+          default: 1
+        min_sum_insured:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Min Sum Insured
+        max_sum_insured:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Max Sum Insured
+        required_benefits:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          title: Required Benefits
+        pre_existing_conditions:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          title: Pre Existing Conditions
+        max_ped_waiting_months:
+          anyOf:
+          - type: integer
+            maximum: 120.0
+            minimum: 0.0
+          - type: 'null'
+          title: Max Ped Waiting Months
+        max_waiting_period_days:
+          anyOf:
+          - type: integer
+            maximum: 365.0
+            minimum: 0.0
+          - type: 'null'
+          title: Max Waiting Period Days
+        max_copay_pct:
+          anyOf:
+          - type: number
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Max Copay Pct
+        max_deductible:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Max Deductible
+        room_rent_preference:
+          type: string
+          enum:
+          - any
+          - no_limit
+          - single_private
+          - shared
+          title: Room Rent Preference
+          default: any
+        require_cashless:
+          type: boolean
+          title: Require Cashless
+          default: false
+        min_network_hospitals:
+          type: integer
+          maximum: 1000000.0
+          minimum: 0.0
+          title: Min Network Hospitals
+          default: 0
+        location:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Location
+        tenure_years:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Tenure Years
+          default: 1
+        require_lifelong_renewal:
+          type: boolean
+          title: Require Lifelong Renewal
+          default: false
+        annual_income_inr:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Annual Income Inr
+        risk_preference:
+          anyOf:
+          - type: string
+            enum:
+            - low_premium
+            - balanced
+            - comprehensive_coverage
+          - type: 'null'
+          title: Risk Preference
+        smoking_status:
+          anyOf:
+          - type: string
+            enum:
+            - non_smoker
+            - smoker
+          - type: 'null'
+          title: Smoking Status
+        vehicle_type:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Vehicle Type
+        vehicle_age_years:
+          anyOf:
+          - type: integer
+            maximum: 50.0
+            minimum: 0.0
+          - type: 'null'
+          title: Vehicle Age Years
+        require_own_damage:
+          type: boolean
+          title: Require Own Damage
+          default: false
+        require_third_party:
+          type: boolean
+          title: Require Third Party
+          default: false
+        require_zero_depreciation:
+          type: boolean
+          title: Require Zero Depreciation
+          default: false
+        require_roadside_assistance:
+          type: boolean
+          title: Require Roadside Assistance
+          default: false
+        require_engine_protection:
+          type: boolean
+          title: Require Engine Protection
+          default: false
+        require_maturity_benefit:
+          type: boolean
+          title: Require Maturity Benefit
+          default: false
+        require_surrender_value:
+          type: boolean
+          title: Require Surrender Value
+          default: false
+        max_premium_payment_term_years:
+          anyOf:
+          - type: integer
+            maximum: 60.0
+            minimum: 1.0
+          - type: 'null'
+          title: Max Premium Payment Term Years
+        require_critical_illness_rider:
+          type: boolean
+          title: Require Critical Illness Rider
+          default: false
+        require_accidental_death_rider:
+          type: boolean
+          title: Require Accidental Death Rider
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - policy_type
+      - age
+      - budget_max
+      - min_sum_insured
+      title: UserProfileRequest
+      description: User profile and eligibility requirements (FR-REC-01 & Architecture §3.4).
+      examples:
+      - age: 32
+        annual_income_inr: 1500000
+        applicant_type: salaried
+        budget_max: 25000
+        budget_min: 8000
+        coverage_mode: family_floater
+        family_size: 3
+        min_network_hospitals: 3000
+        min_sum_insured: 500000
+        policy_type: health
+        pre_existing_conditions: []
+        require_cashless: true
+        required_benefits:
+        - cashless_hospitalization
+        - daycare_procedures
+        risk_preference: balanced
+        room_rent_preference: single_private
+        tenure_years: 1
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    ServiceTokenAuth:
+      type: apiKey
+      description: Shared internal service token supplied by the Node.js API gateway. Mandatory in all
+        non-development environments.
+      in: header
+      name: X-Service-Token

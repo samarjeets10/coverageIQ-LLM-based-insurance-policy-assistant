@@ -1,10 +1,30 @@
-fastapi>=0.115.0
-uvicorn>=0.30.0
-pydantic>=2.8.0
+# Core Web & Validation Framework
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+pydantic>=2.9.0,<3.0.0
+pydantic-settings>=2.6.0,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
+pyyaml>=6.0.0,<7.0.0
+httpx>=0.27.0,<1.0.0
+
+# Database Driver & Core SQL
+sqlalchemy>=2.0.36,<3.0.0
+psycopg[binary]>=3.2.0,<4.0.0
+
+# M3 / M7 / M8 — Hybrid Retrieval, Cross-Encoder Reranking & LLM Verification
 rank-bm25>=0.2.2
 google-genai>=0.1.0
 sentence-transformers>=3.0.0
 torch>=2.2.0
-numpy>=1.26.0
-pytest>=8.0.0
-httpx>=0.27.0
+
+# M5 / 6A — Policy Recommendation Feature Engineering & Ranking
+numpy>=2.0.0,<3.0.0
+pandas>=2.2.0,<4.0.0
+scikit-learn>=1.5.0,<2.0.0
+lightgbm>=4.5.0,<5.0.0
+xgboost>=2.1.0,<4.0.0
+joblib>=1.4.0,<2.0.0
+
+# Testing & Code Quality
+pytest>=8.3.0,<10.0.0
+ruff>=0.7.0,<1.0.0

@@ -1,16 +1,21 @@
 # ==============================================================================
-# CoverageIQ - AI Service Local Git Ignore Configuration
-# Owner: Mr. Yash Shankar Nimbalkar 
-# Scope: Hybrid Retrieval, Cross-Encoder, Grounded LLM & Evaluator Agent
+# CoverageIQ - AI Service Git Ignore Configuration
+# Preserves upstream M2/M3/M7/M8 ignore rules while narrowly tracking required
+# M5 baseline LightGBM artifacts and documented SQL design proposals.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 1. Local Testing Database & Storage (Prevent conflicts with Original DB)
+# 1. Local Testing Database & Storage (Prevent conflicts with Primary DB)
 # ------------------------------------------------------------------------------
 *.sqlite
 *.sqlite3
 *.db
 *.sql
+!sql/
+sql/*
+!sql/proposed_003_recommendation_schema.sql
+!sql/proposed_003_recommendation_schema_v2.sql
+!sql/proposed_003_recommendation_schema_v3.sql
 *.duckdb
 *.parquet
 data/
@@ -29,9 +34,11 @@ __pycache__/
 .Python
 
 # ------------------------------------------------------------------------------
-# 3. Automated Testing, Pytest & Coverage Reports
+# 3. Automated Testing, Linting & Coverage Reports
 # ------------------------------------------------------------------------------
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 .coverage.*
 htmlcov/
@@ -48,9 +55,9 @@ htmlcov/
 *.key
 
 # ------------------------------------------------------------------------------
-# 5. ML Models, Checkpoints & HuggingFace Weights (Keep repository light)
+# 5. ML Models, Checkpoints & Artifacts (Narrow exception for 3 M5 model files)
 # ------------------------------------------------------------------------------
-models/
+/models/
 checkpoints/
 huggingface/
 .cache/
@@ -59,10 +66,21 @@ huggingface/
 *.bin
 *.safetensors
 *.onnx
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/lightgbm_ranker.joblib
+!artifacts/models/lightgbm_metadata.json
+!artifacts/models/training_metrics.json
 
 # ------------------------------------------------------------------------------
-# 6. Test PDFs, Scanned Policies & Temporary Ingestion Artifacts
+# 6. Logs, Build Outputs, Test PDFs & Temporary Ingestion Artifacts
 # ------------------------------------------------------------------------------
+logs/
+*.log
+build/
+dist/
+*.egg-info/
 *.pdf
 uploads/
 temp/
