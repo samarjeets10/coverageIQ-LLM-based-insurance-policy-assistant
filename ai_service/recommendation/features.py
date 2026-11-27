@@ -18,10 +18,34 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ai_service.recommendation.coercion import (
+    OPTIONAL_FLOAT_METADATA_BOUNDS,
+    OPTIONAL_INT_METADATA_MINS,
+    TYPE_METADATA_NUMERIC_BOUNDS,
+    InvalidNumericMetadataError,
+    find_invalid_mandatory_policy_bounds,
+    is_missing_or_blank,
+    parse_bool,
+    parse_bounded_optional_float,
+    parse_bounded_optional_int,
+    parse_strict_metadata_mapping,
+    parse_strict_optional_float,
+    validate_policy_optional_numeric_fields,
+)
 from ai_service.recommendation.dataset import load_synthetic_dataset
 from ai_service.recommendation.schemas import UserProfileRequest
 
 FEATURE_SCHEMA_VERSION = "1.0.0"
+# Training Health PED waiting periods (`dataset.py`) span {12, 24, 36, 48} months,
+# and `lightgbm_ranker.joblib` splits once at 1260.0 days (`tree_index=11`) with
+# higher leaf scores above 1260.0. Using 36 months (1080.0 days) prevents missing
+# health PED metadata from being treated as 0 days while preserving the 59-feature
+# schema and avoiding the accidental >1260-day LightGBM boost. Full distinction vs.
+# explicit 36-month waits requires schema v2.0.0 (`has_ped_waiting_period`) + retrain.
+CONSERVATIVE_MISSING_HEALTH_PED_WAIT_MONTHS: int = 36
+CONSERVATIVE_MISSING_HEALTH_PED_WAIT_DAYS: float = float(
+    CONSERVATIVE_MISSING_HEALTH_PED_WAIT_MONTHS * 30
+)
 
 POLICY_TYPE_ENCODING: dict[str, float] = {
     "health": 0.0,
@@ -287,36 +311,37 @@ class TrainingFeatureDataset:
 
 
 def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return True
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return is_missing_or_blank(value)
 
 
-def _to_optional_float(value: Any) -> float | None:
-    if _is_missing(value):
-        return None
-    converted = float(value)
-    if not math.isfinite(converted):
-        return None
-    return converted
+def _to_optional_float(value: Any, *, field_name: str = "value") -> float | None:
+    return parse_strict_optional_float(value, field_name=field_name)
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
-    if _is_missing(value):
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in ("true", "1", "yes"):
-            return True
-        if lowered in ("false", "0", "no"):
-            return False
-    return bool(value)
+    return parse_bool(value, default=default)
+
+
+def _to_bounded_policy_float(value: Any, *, field_name: str) -> float | None:
+    min_val, max_val = OPTIONAL_FLOAT_METADATA_BOUNDS.get(field_name, (None, None))
+    return parse_bounded_optional_float(
+        value, field_name=field_name, min_value=min_val, max_value=max_val
+    )
+
+
+def _to_bounded_policy_int(value: Any, *, field_name: str) -> int | None:
+    min_val = OPTIONAL_INT_METADATA_MINS.get(field_name)
+    return parse_bounded_optional_int(value, field_name=field_name, min_value=min_val)
+
+
+def _to_bounded_type_meta_float(value: Any, *, key: str) -> float | None:
+    min_val, max_val = TYPE_METADATA_NUMERIC_BOUNDS.get(key, (0.0, None))
+    return parse_bounded_optional_float(
+        value,
+        field_name=f"type_specific_metadata.{key}",
+        min_value=min_val,
+        max_value=max_val,
+    )
 
 
 def _parse_str_list(raw: Any) -> list[str]:
@@ -334,15 +359,7 @@ def _parse_str_list(raw: Any) -> list[str]:
 
 
 def _parse_metadata(raw: Any) -> dict[str, Any]:
-    if _is_missing(raw):
-        return {}
-    if isinstance(raw, Mapping):
-        return {str(k): v for k, v in raw.items()}
-    try:
-        decoded = json.loads(str(raw))
-    except (json.JSONDecodeError, TypeError):
-        return {}
-    return decoded if isinstance(decoded, dict) else {}
+    return parse_strict_metadata_mapping(raw, field_name="type_specific_metadata")
 
 
 def _safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
@@ -368,9 +385,11 @@ def _normalize_profile_fields(profile: UserProfileRequest | Mapping[str, Any]) -
     if policy_type not in POLICY_TYPE_ENCODING:
         raise MissingMandatoryFeatureInputError(f"Unsupported policy_type: {policy_type}")
 
-    age = _to_optional_float(raw.get("age"))
-    budget_max = _to_optional_float(raw.get("budget_max"))
-    min_sum_insured = _to_optional_float(raw.get("min_sum_insured"))
+    age = _to_optional_float(raw.get("age"), field_name="profile.age")
+    budget_max = _to_optional_float(raw.get("budget_max"), field_name="profile.budget_max")
+    min_sum_insured = _to_optional_float(
+        raw.get("min_sum_insured"), field_name="profile.min_sum_insured"
+    )
     if age is None or budget_max is None or min_sum_insured is None:
         missing = [
             name
@@ -391,15 +410,17 @@ def _normalize_profile_fields(profile: UserProfileRequest | Mapping[str, Any]) -
         )
 
     annual_income = _to_optional_float(
-        raw.get("annual_income_inr") if "annual_income_inr" in raw else raw.get("annual_income")
+        raw.get("annual_income_inr") if "annual_income_inr" in raw else raw.get("annual_income"),
+        field_name="profile.annual_income_inr",
     )
     monthly_budget = _to_optional_float(
-        raw.get("monthly_budget_inr") if "monthly_budget_inr" in raw else raw.get("monthly_budget")
+        raw.get("monthly_budget_inr") if "monthly_budget_inr" in raw else raw.get("monthly_budget"),
+        field_name="profile.monthly_budget_inr",
     )
     if monthly_budget is None:
         monthly_budget = budget_max / 12.0
 
-    family_size = _to_optional_float(raw.get("family_size"))
+    family_size = _to_optional_float(raw.get("family_size"), field_name="profile.family_size")
     risk_pref_raw = str(raw.get("risk_preference") or "balanced").strip().lower()
     risk_encoded = RISK_PREFERENCE_ENCODING.get(risk_pref_raw, 1.0)
 
@@ -417,15 +438,20 @@ def _normalize_profile_fields(profile: UserProfileRequest | Mapping[str, Any]) -
         "min_sum_insured": min_sum_insured,
         "required_benefits": set(_parse_str_list(raw.get("required_benefits"))),
         "pre_existing_conditions": set(_parse_str_list(raw.get("pre_existing_conditions"))),
-        "tenure_years": _to_optional_float(raw.get("tenure_years")) or 1.0,
+        "tenure_years": _to_optional_float(
+            raw.get("tenure_years"), field_name="profile.tenure_years"
+        )
+        or 1.0,
         "risk_preference_encoded": risk_encoded,
         "smoking_status": smoking_status,
-        "vehicle_age_years": _to_optional_float(raw.get("vehicle_age_years")),
+        "vehicle_age_years": _to_optional_float(
+            raw.get("vehicle_age_years"), field_name="profile.vehicle_age_years"
+        ),
     }
 
 
 def _normalize_policy_fields(policy: Mapping[str, Any]) -> dict[str, Any]:
-    """Extract only observable policy catalog fields without IDs or filtering artifacts."""
+    """Extract observable policy catalog fields while enforcing Stage 4 validation bounds."""
     if not isinstance(policy, Mapping):
         raise MissingMandatoryFeatureInputError("Policy must be a mapping")
 
@@ -436,19 +462,36 @@ def _normalize_policy_fields(policy: Mapping[str, Any]) -> dict[str, Any]:
     if policy_type not in POLICY_TYPE_ENCODING:
         raise MissingMandatoryFeatureInputError(f"Unsupported policy_type: {policy_type}")
 
-    prem_single = _to_optional_float(policy.get("annual_premium"))
-    prem_min = _to_optional_float(policy.get("annual_premium_min"))
-    prem_max = _to_optional_float(policy.get("annual_premium_max"))
+    invalid_optional = validate_policy_optional_numeric_fields(policy)
+    if invalid_optional:
+        raise InvalidNumericMetadataError(
+            "Policy contains malformed, boolean, non-finite, or out-of-range optional "
+            f"numeric metadata: {', '.join(invalid_optional)}"
+        )
+
+    prem_single = _to_bounded_policy_float(
+        policy.get("annual_premium"), field_name="annual_premium"
+    )
+    prem_min = parse_bounded_optional_float(
+        policy.get("annual_premium_min"), field_name="annual_premium_min", min_value=0.0
+    )
+    prem_max = parse_bounded_optional_float(
+        policy.get("annual_premium_max"), field_name="annual_premium_max", min_value=0.0
+    )
     if prem_min is None and prem_single is not None:
         prem_min = prem_single
     if prem_max is None and prem_single is not None:
         prem_max = prem_single
 
-    sum_max = _to_optional_float(policy.get("sum_insured_max"))
+    sum_max = _to_optional_float(policy.get("sum_insured_max"), field_name="sum_insured_max")
     if sum_max is None:
-        sum_max = _to_optional_float(policy.get("sum_insured"))
-    min_age = _to_optional_float(policy.get("min_entry_age"))
-    max_age = _to_optional_float(policy.get("max_entry_age"))
+        sum_max = _to_bounded_policy_float(policy.get("sum_insured"), field_name="sum_insured")
+    min_age = parse_bounded_optional_int(
+        policy.get("min_entry_age"), field_name="min_entry_age", min_value=0, max_value=120
+    )
+    max_age = parse_bounded_optional_int(
+        policy.get("max_entry_age"), field_name="max_entry_age", min_value=0, max_value=120
+    )
 
     missing_fields = [
         name
@@ -468,16 +511,61 @@ def _normalize_policy_fields(policy: Mapping[str, Any]) -> dict[str, Any]:
 
     assert prem_min is not None and prem_max is not None
     assert sum_max is not None and min_age is not None and max_age is not None
+    invalid_bounds = find_invalid_mandatory_policy_bounds(
+        min_age=min_age,
+        max_age=max_age,
+        prem_min=prem_min,
+        prem_max=prem_max,
+        sum_max=sum_max,
+    )
+    if invalid_bounds:
+        raise InvalidNumericMetadataError(
+            f"Policy failed numeric domain integrity check(s): {', '.join(invalid_bounds)}"
+        )
 
-    max_renewal_age = _to_optional_float(policy.get("max_renewal_age"))
+    max_renewal_age_int = _to_bounded_policy_int(
+        policy.get("max_renewal_age"), field_name="max_renewal_age"
+    )
+    max_renewal_age = float(max_renewal_age_int) if max_renewal_age_int is not None else None
     lifelong = _to_bool(policy.get("lifelong_renewal"), default=False)
-    csr = _to_optional_float(policy.get("claim_settlement_ratio"))
-    ped_wait_months = _to_optional_float(policy.get("ped_waiting_period_months"))
+    csr = _to_bounded_policy_float(
+        policy.get("claim_settlement_ratio"), field_name="claim_settlement_ratio"
+    )
+    ped_covered = _to_bool(policy.get("ped_covered"), default=False)
+    ped_wait_months = _to_bounded_policy_int(
+        policy.get("ped_waiting_period_months"),
+        field_name="ped_waiting_period_months",
+    )
+    if policy_type == "health" and ped_covered:
+        ped_wait_days = (
+            float(ped_wait_months) * 30.0
+            if ped_wait_months is not None
+            else CONSERVATIVE_MISSING_HEALTH_PED_WAIT_DAYS
+        )
+    else:
+        ped_wait_days = 0.0
+
+    deductible = _to_bounded_policy_float(
+        policy.get("deductible_amount"), field_name="deductible_amount"
+    )
+    copay = _to_bounded_policy_float(policy.get("copay_pct"), field_name="copay_pct")
+    init_wait = _to_bounded_policy_int(
+        policy.get("initial_waiting_period_days"), field_name="initial_waiting_period_days"
+    )
+    net_count = _to_bounded_policy_int(
+        policy.get("network_hospitals_count"), field_name="network_hospitals_count"
+    )
+    max_tenure = _to_bounded_policy_int(
+        policy.get("max_tenure_years"), field_name="max_tenure_years"
+    )
+    ncb = _to_bounded_policy_float(
+        policy.get("no_claim_bonus_pct"), field_name="no_claim_bonus_pct"
+    )
 
     return {
         "policy_type": policy_type,
-        "min_entry_age": min_age,
-        "max_entry_age": max_age,
+        "min_entry_age": float(min_age),
+        "max_entry_age": float(max_age),
         "max_renewal_age": max_renewal_age,
         "lifelong_renewal": lifelong,
         "coverage_mode": str(policy.get("coverage_mode") or "individual").strip().lower(),
@@ -485,24 +573,23 @@ def _normalize_policy_fields(policy: Mapping[str, Any]) -> dict[str, Any]:
         "annual_premium_max": prem_max,
         "annual_premium": 0.5 * (prem_min + prem_max),
         "sum_insured": sum_max,
-        "deductible_amount": _to_optional_float(policy.get("deductible_amount")) or 0.0,
-        "copay_pct": _to_optional_float(policy.get("copay_pct")) or 0.0,
+        "deductible_amount": deductible if deductible is not None else 0.0,
+        "copay_pct": copay if copay is not None else 0.0,
         "room_rent_limit_type": str(policy.get("room_rent_limit_type") or "no_limit")
         .strip()
         .lower(),
-        "initial_waiting_period_days": _to_optional_float(policy.get("initial_waiting_period_days"))
-        or 0.0,
-        "ped_covered": _to_bool(policy.get("ped_covered"), default=False),
-        "ped_waiting_period_days": (ped_wait_months * 30.0) if ped_wait_months is not None else 0.0,
-        "network_hospitals_count": _to_optional_float(policy.get("network_hospitals_count")) or 0.0,
+        "initial_waiting_period_days": float(init_wait) if init_wait is not None else 0.0,
+        "ped_covered": ped_covered,
+        "ped_waiting_period_days": ped_wait_days,
+        "network_hospitals_count": float(net_count) if net_count is not None else 0.0,
         "cashless_available": _to_bool(policy.get("cashless_available"), default=False),
         "pan_india_coverage": _to_bool(policy.get("pan_india_coverage"), default=False),
-        "max_tenure_years": _to_optional_float(policy.get("max_tenure_years")) or 1.0,
+        "max_tenure_years": float(max_tenure) if max_tenure is not None else 1.0,
         "covered_benefits": set(_parse_str_list(policy.get("covered_benefits"))),
         "exclusions": set(_parse_str_list(policy.get("exclusions"))),
         "claim_settlement_ratio": csr if csr is not None else 0.0,
         "has_claim_settlement_ratio": 1.0 if csr is not None else 0.0,
-        "no_claim_bonus_pct": _to_optional_float(policy.get("no_claim_bonus_pct")) or 0.0,
+        "no_claim_bonus_pct": ncb if ncb is not None else 0.0,
         "restoration_benefit": _to_bool(policy.get("restoration_benefit"), default=False),
         "meta": _parse_metadata(policy.get("type_specific_metadata")),
     }
@@ -569,7 +656,10 @@ def _extract_from_normalized(
 
     # Car-only features
     veh_age = prof["vehicle_age_years"]
-    veh_limit = _to_optional_float(meta.get("vehicle_age_limit_years"))
+    veh_limit = _to_bounded_type_meta_float(
+        meta.get("vehicle_age_limit_years"),
+        key="vehicle_age_limit_years",
+    )
     has_veh_age = 1.0 if (is_car == 1.0 and veh_age is not None) else 0.0
     veh_age_val = veh_age if (is_car == 1.0 and veh_age is not None) else 0.0
     veh_limit_val = veh_limit if (is_car == 1.0 and veh_limit is not None) else 0.0
@@ -581,19 +671,28 @@ def _extract_from_normalized(
 
     # Life & Term shared features (zeroed for Health & Car)
     is_life_or_term = is_life == 1.0 or is_term == 1.0
-    raw_life_cover = _to_optional_float(meta.get("life_cover_max"))
+    raw_life_cover = _to_bounded_type_meta_float(
+        meta.get("life_cover_max"),
+        key="life_cover_max",
+    )
     life_cover = (
         (raw_life_cover if raw_life_cover is not None else sum_insured) if is_life_or_term else 0.0
     )
     req_life_cover = req_sum if is_life_or_term else 0.0
     life_cover_ratio = _safe_divide(life_cover, req_life_cover) if is_life_or_term else 0.0
-    raw_policy_term = _to_optional_float(meta.get("policy_term_years_max"))
+    raw_policy_term = _to_bounded_type_meta_float(
+        meta.get("policy_term_years_max"),
+        key="policy_term_years_max",
+    )
     policy_term = (
         (raw_policy_term if raw_policy_term is not None else pol["max_tenure_years"])
         if is_life_or_term
         else 0.0
     )
-    raw_ppt_years = _to_optional_float(meta.get("premium_payment_term_years"))
+    raw_ppt_years = _to_bounded_type_meta_float(
+        meta.get("premium_payment_term_years"),
+        key="premium_payment_term_years",
+    )
     ppt_years = (raw_ppt_years if raw_ppt_years is not None else 0.0) if is_life_or_term else 0.0
 
     features: dict[str, float] = {
@@ -712,7 +811,13 @@ def extract_policy_features(
     profile: UserProfileRequest | Mapping[str, Any],
     policy: Mapping[str, Any],
 ) -> dict[str, float]:
-    """Extract deterministic numerical features for one (profile, policy) pair."""
+    """Extract deterministic numerical features for one (profile, policy) pair.
+
+    Enforces Stage 4 numeric parsing, integer constraints, and domain bounds
+    directly on policy attributes, raising ``InvalidNumericMetadataError`` for
+    malformed or out-of-range inputs and ``MissingMandatoryFeatureInputError``
+    when required inputs are absent.
+    """
     prof = _normalize_profile_fields(profile)
     pol = _normalize_policy_fields(policy)
     return _extract_from_normalized(prof, pol)
@@ -735,7 +840,11 @@ def build_feature_matrix(
     profile: UserProfileRequest | Mapping[str, Any],
     eligible_policies: Sequence[Mapping[str, Any]],
 ) -> pd.DataFrame:
-    """Build a fixed-schema float64 feature matrix for a batch of eligible policies."""
+    """Build a fixed-schema float64 feature matrix for a batch of eligible policies.
+
+    Enforces the same Stage 4 strict numeric/integer/domain-bound validation on
+    each policy record via ``extract_policy_features`` / ``_normalize_policy_fields``.
+    """
     prof = _normalize_profile_fields(profile)
     if not eligible_policies:
         empty = pd.DataFrame(columns=list(FEATURE_COLUMNS)).astype(np.float64)

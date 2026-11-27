@@ -51,6 +51,12 @@ from ai_service.recommendation.citations import (
     RecommendationCitationProvider,
     normalize_and_validate_citation,
 )
+from ai_service.recommendation.coercion import (
+    is_missing_or_blank,
+    parse_optional_bool,
+    parse_safe_optional_policy_float,
+    parse_safe_optional_policy_int,
+)
 from ai_service.recommendation.features import (
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
@@ -388,38 +394,39 @@ def _validate_loaded_model_state(model_state: ModelState) -> tuple[lgb.LGBMRanke
 
 
 def _extract_factual_highlights(policy: Mapping[str, Any]) -> list[str]:
-    """Assemble factual policy highlights strictly from non-null DB fields."""
+    """Assemble factual policy highlights safely from normalized, valid DB fields."""
     highlights: list[str] = []
 
-    if policy.get("cashless_available") is True:
-        hospitals = policy.get("network_hospitals_count")
-        if hospitals is not None and int(hospitals) > 0:
-            highlights.append(f"Cashless network: {int(hospitals):,} hospitals/garages")
+    if parse_optional_bool(policy.get("cashless_available")) is True:
+        hospitals = parse_safe_optional_policy_int(policy, "network_hospitals_count")
+        if hospitals is not None and hospitals > 0:
+            highlights.append(f"Cashless network: {hospitals:,} hospitals/garages")
         else:
             highlights.append("Cashless claim facility available")
 
-    csr = policy.get("claim_settlement_ratio")
+    csr = parse_safe_optional_policy_float(policy, "claim_settlement_ratio")
     if csr is not None:
-        highlights.append(f"Claim settlement ratio: {float(csr):.2f}%")
+        highlights.append(f"Claim settlement ratio: {csr:.2f}%")
 
-    if policy.get("lifelong_renewal") is True:
+    if parse_optional_bool(policy.get("lifelong_renewal")) is True:
         highlights.append("Lifelong renewal supported")
 
-    if policy.get("restoration_benefit") is True:
+    if parse_optional_bool(policy.get("restoration_benefit")) is True:
         highlights.append("Sum insured restoration benefit")
 
-    if policy.get("ped_covered") is True and str(policy.get("policy_type", "")).lower() == "health":
-        ped_wait = policy.get("ped_waiting_period_months")
+    policy_type = str(policy.get("policy_type") or "").strip().lower()
+    if parse_optional_bool(policy.get("ped_covered")) is True and policy_type == "health":
+        ped_wait = parse_safe_optional_policy_int(policy, "ped_waiting_period_months")
         if ped_wait is not None:
-            highlights.append(f"PED covered ({int(ped_wait)}-month waiting period)")
+            highlights.append(f"PED covered ({ped_wait}-month waiting period)")
         else:
             highlights.append("Pre-existing conditions covered")
 
-    if policy.get("pan_india_coverage") is True:
+    if parse_optional_bool(policy.get("pan_india_coverage")) is True:
         highlights.append("Pan-India coverage")
 
-    copay = policy.get("copay_pct")
-    if copay is not None and float(copay) == 0.0:
+    copay = parse_safe_optional_policy_float(policy, "copay_pct")
+    if copay is not None and copay == 0.0:
         highlights.append("Zero co-payment")
 
     return highlights
@@ -721,6 +728,32 @@ def recommend_policies_for_request(
         ) from exc
     timings_ms["filter"] = (time.perf_counter() - t_filter_start) * 1000.0
 
+    invalid_metadata_elims = [
+        elim
+        for elim in filter_result.filter_report.eliminations
+        if elim.rule_id == "INVALID_POLICY_METADATA"
+    ]
+    if invalid_metadata_elims:
+        excluded_policy_count = len({elim.policy_id for elim in invalid_metadata_elims})
+        invalid_fields = sorted(
+            {
+                str(field)
+                for elim in invalid_metadata_elims
+                if isinstance(elim.actual, list)
+                for field in elim.actual
+            }
+        )
+        emit_structured_event(
+            logger,
+            level=logging.WARNING,
+            event="recommendation.policy_metadata_excluded",
+            message="Excluded catalog candidate(s) with malformed optional numeric metadata.",
+            request_id=resolved_request_id,
+            policy_type=request.profile.policy_type,
+            excluded_policy_count=excluded_policy_count,
+            invalid_fields=invalid_fields,
+        )
+
     profile_completeness = _build_profile_completeness(request.profile, backend_used=backend_used)
     warnings = _build_profile_limitation_warnings(
         request.profile, metadata, backend_used=backend_used
@@ -767,6 +800,16 @@ def recommend_policies_for_request(
         )
 
     eligible_policies = filter_result.eligible_policies
+    if request.profile.policy_type == "health" and any(
+        parse_optional_bool(pol.get("ped_covered")) is True
+        and is_missing_or_blank(pol.get("ped_waiting_period_months"))
+        for pol in eligible_policies
+    ):
+        warnings.append(
+            "One or more health candidate policies omitted optional 'ped_waiting_period_months'; "
+            "Stage 5 applied the conservative 36-month (1080-day) fallback under feature schema "
+            "v1.0.0 instead of encoding zero days."
+        )
 
     # Step 5: Stage 5 deterministic feature extraction for eligible candidates only
     t_feat_start = time.perf_counter()

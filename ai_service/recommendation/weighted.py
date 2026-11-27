@@ -222,6 +222,8 @@ def score_policies_weighted(
     benefits = np.minimum(1.0, base_benefits + bonus_benefits) * req_match
 
     # 4. Out-of-pocket cost-sharing & waiting period efficiency
+    is_health = col("is_health") > 0.5
+    has_ped_cover = col("ped_coverage_indicator") > 0.5
     copay_score = 1.0 - np.minimum(
         1.0, np.maximum(0.0, col("co_payment_percentage")) / cfg.copay_max_pct
     )
@@ -234,6 +236,8 @@ def score_policies_weighted(
     ped_wait_score = np.maximum(
         0.0, 1.0 - np.maximum(0.0, col("ped_waiting_period_days")) / cfg.ped_wait_max_days
     )
+    # Policies without PED coverage cannot earn 0-day PED wait credit in health scoring.
+    ped_wait_score = np.where(is_health & ~has_ped_cover, 0.0, ped_wait_score)
     cost_waiting = (
         0.35 * copay_score + 0.25 * deduct_score + 0.20 * init_wait_score + 0.20 * ped_wait_score
     )
@@ -245,7 +249,6 @@ def score_policies_weighted(
     net_norm = np.minimum(
         1.0, np.maximum(0.0, col("hospital_network_count")) / cfg.hospital_network_max_count
     )
-    is_health = col("is_health") > 0.5
     pan_india = np.clip(col("pan_india_coverage_indicator"), 0.0, 1.0)
     insurer_network = np.where(
         is_health,

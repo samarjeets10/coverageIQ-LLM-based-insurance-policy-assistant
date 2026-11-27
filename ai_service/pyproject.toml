@@ -24,6 +24,7 @@ include = [
     "tests/test_health_and_config.py",
     "tests/test_inference.py",
     "tests/test_m5_missingness_and_sensitivity.py",
+    "tests/test_m5_stage_i2_hardening.py",
     "tests/test_phase9b1_hardening.py",
     "tests/test_schema_draft.py",
     "tests/test_schemas.py",

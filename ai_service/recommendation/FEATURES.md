@@ -12,6 +12,7 @@
 Rather than maintaining four separate incompatible feature matrices (`health`, `car`, `life`, `term`), Module 6A uses a **single unified 59-column `float64` matrix (`FEATURE_COLUMNS`)** with explicit category indicator columns (`is_health`, `is_car`, `is_life`, `is_term`, `policy_type_encoded`) and availability flags (`has_claim_settlement_ratio`, `has_annual_income`, `has_vehicle_age`):
 - **Why:** LightGBM and XGBoost split naturally on category indicators while sharing affordability, coverage headroom, and claim reliability signals across categories.
 - **Category Isolation:** Health-specific columns (`hospital_network_count`, `ped_*`, `co_payment_percentage`, etc.) are computed strictly when `policy_type == "health"` and set to `0.0` otherwise (preventing Car garage counts from leaking into Health hospital counts). Car columns and Life/Term columns are similarly gated by their respective categories.
+- **Unified Schema & Missing PED Semantics (M5.I2):** `FEATURE_SCHEMA_VERSION` stays pinned to `1.0.0` (`59` features) for compatibility with the trained LightGBM ranker (`lightgbm_ranker.joblib`). When a `health` policy covers pre-existing conditions (`ped_covered=True`) with `ped_waiting_period_months=None`, `ped_waiting_period_days` uses a conservative `36`-month (`1080.0`-day) fallback rather than `0.0` days (which would reward missing data in weighted scoring) or `> 1260.0` days (which triggers an unintended higher leaf in LightGBM Tree 11). Uncovered health PED policies (`ped_covered=False`) and non-health categories keep `ped_waiting_period_days = 0.0`, while weighted scoring assigns `0.0` PED-wait credit whenever `ped_covered=False`.
 - **Fixed Ordering:** Column order is locked to `FEATURE_COLUMNS` regardless of input policy row ordering.
 
 ### Leakage Prohibition
@@ -20,7 +21,7 @@ The following fields are **strictly excluded** from `FEATURE_COLUMNS` (`FORBIDDE
 - **Hard-filter artifacts:** `is_eligible`, `failed_filters`, `passed_filters`, `elimination_reasons`
 - **Unique identifiers:** `profile_id`, `policy_id`, `policy_code`
 
-Hard filtering (`filters.py`) runs **before** feature extraction so only eligible candidates enter ranking. Training data (`build_training_feature_dataset`) returns `(X, y, groups, metadata)` without performing random train/test splitting so Stage 6–8 evaluations use `profile_id` group-aware splits (`GroupKFold` / `GroupShuffleSplit`).
+Hard filtering (`filters.py`) runs **before** feature extraction so only eligible candidates enter ranking. Direct calls to `extract_policy_features` / `build_feature_matrix` also enforce the same Stage 4 strict numeric/integer parsing, domain bounds, and unified boolean normalization (`coercion.py`), raising `InvalidNumericMetadataError` on malformed or out-of-range inputs and `MissingMandatoryFeatureInputError` on missing required inputs. Training data (`build_training_feature_dataset`) returns `(X, y, groups, metadata)` without performing random train/test splitting so Stage 6–8 evaluations use `profile_id` group-aware splits (`GroupKFold` / `GroupShuffleSplit`).
 
 ---
 
@@ -94,7 +95,7 @@ Hard filtering (`filters.py`) runs **before** feature extraction so only eligibl
 | # | Feature Name | Formula / Definition | Source |
 |---|---|---|---|
 | 34 | `ped_coverage_indicator` | `1.0` if `ped_covered` else `0.0` | `policy.ped_covered` |
-| 35 | `ped_waiting_period_days` | `ped_waiting_period_months * 30.0` (0.0 if null/not covered) | `policy.ped_waiting_period_months` |
+| 35 | `ped_waiting_period_days` | `ped_waiting_period_months * 30.0` (conservative `1080.0` [36-month] fallback when `ped_covered=True` and null; `0.0` if uncovered/non-health) | `policy.ped_waiting_period_months` |
 | 36 | `initial_waiting_period_days` | `float(initial_waiting_period_days)` | `policy.initial_waiting_period_days` |
 | 37 | `room_rent_restriction_indicator` | `1.0` if `room_rent_limit_type != "no_limit"` else `0.0` | `policy.room_rent_limit_type` |
 | 38 | `cashless_availability_indicator` | `1.0` if `cashless_available` else `0.0` | `policy.cashless_available` |

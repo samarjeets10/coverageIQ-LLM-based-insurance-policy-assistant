@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -21,6 +20,16 @@ from sqlalchemy import Connection, Select, and_, or_, select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 
 from ai_service.common.tables import policies, policy_attributes
+from ai_service.recommendation.coercion import (
+    InvalidNumericMetadataError,
+    find_invalid_mandatory_policy_bounds,
+    is_missing_or_blank,
+    parse_optional_bool,
+    parse_strict_metadata_mapping,
+    parse_strict_optional_float,
+    parse_strict_optional_int,
+    validate_policy_optional_numeric_fields,
+)
 from ai_service.recommendation.schemas import (
     FilterEliminationReason,
     FilterFailureDetail,
@@ -98,51 +107,25 @@ _NON_FILTER_PROFILE_FIELDS = frozenset(
 
 
 def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return True
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return is_missing_or_blank(value)
 
 
 def _to_optional_int(value: Any) -> int | None:
-    if _is_missing(value) or isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
     try:
-        numeric = float(value)
-    except (ValueError, TypeError, OverflowError):
+        return parse_strict_optional_int(value)
+    except InvalidNumericMetadataError:
         return None
-    if not math.isfinite(numeric):
-        return None
-    return int(numeric) if numeric.is_integer() else None
 
 
 def _to_optional_float(value: Any) -> float | None:
-    if _is_missing(value) or isinstance(value, bool):
-        return None
     try:
-        converted = float(value)
-    except (ValueError, TypeError, OverflowError):
+        return parse_strict_optional_float(value)
+    except InvalidNumericMetadataError:
         return None
-    return converted if math.isfinite(converted) else None
 
 
 def _to_optional_bool(value: Any) -> bool | None:
-    if _is_missing(value):
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in ("true", "1", "yes"):
-            return True
-        if lowered in ("false", "0", "no"):
-            return False
-    return bool(value)
+    return parse_optional_bool(value)
 
 
 def _to_optional_str(value: Any) -> str | None:
@@ -167,16 +150,29 @@ def _parse_str_list(raw: Any) -> list[str] | None:
 
 
 def _parse_metadata_dict(raw: Any) -> dict[str, Any]:
-    """Parse type_specific_metadata safely without failing on empty values."""
-    if _is_missing(raw):
-        return {}
-    if isinstance(raw, Mapping):
-        return {str(k): v for k, v in raw.items()}
+    """Parse type_specific_metadata safely for rule evaluation without failing the batch."""
     try:
-        decoded = json.loads(str(raw))
-    except (json.JSONDecodeError, TypeError):
+        return parse_strict_metadata_mapping(raw)
+    except InvalidNumericMetadataError:
         return {}
-    return decoded if isinstance(decoded, dict) else {}
+
+
+def _check_optional_numeric_metadata(policy: Mapping[str, Any], acc: _RuleAccumulator) -> None:
+    """Validate optional numeric columns and metadata keys so invalid rows are excluded safely."""
+    invalid_fields = validate_policy_optional_numeric_fields(policy)
+
+    if invalid_fields:
+        acc.fail_rule(
+            "INVALID_POLICY_METADATA",
+            (
+                "Policy contains malformed, boolean, non-finite, or out-of-range optional "
+                f"numeric metadata: {', '.join(invalid_fields)}"
+            ),
+            expected="valid finite non-boolean numeric metadata or null",
+            actual=invalid_fields,
+        )
+    else:
+        acc.pass_rule("OPTIONAL_POLICY_METADATA")
 
 
 def _coerce_profile(profile: UserProfileRequest | Mapping[str, Any]) -> UserProfileRequest:
@@ -260,13 +256,13 @@ def _check_mandatory_policy_fields(policy: Mapping[str, Any], acc: _RuleAccumula
 
     assert min_age is not None and max_age is not None
     assert prem_min is not None and prem_max is not None and sum_max is not None
-    invalid_bounds: list[str] = []
-    if min_age < 0 or max_age > 120 or min_age > max_age:
-        invalid_bounds.append("entry_age_range")
-    if prem_min < 0 or prem_max < prem_min:
-        invalid_bounds.append("annual_premium_range")
-    if sum_max <= 0:
-        invalid_bounds.append("sum_insured_max")
+    invalid_bounds = find_invalid_mandatory_policy_bounds(
+        min_age=min_age,
+        max_age=max_age,
+        prem_min=prem_min,
+        prem_max=prem_max,
+        sum_max=sum_max,
+    )
 
     if invalid_bounds:
         acc.fail_rule(
@@ -936,6 +932,7 @@ def evaluate_policy_eligibility(
             _check_life_rules(normalized_profile, policy, meta, acc)
         elif normalized_profile.policy_type == "term":
             _check_term_rules(normalized_profile, policy, meta, acc)
+        _check_optional_numeric_metadata(policy, acc)
 
     return PolicyFilterEvaluation(
         policy_id=policy_id,
