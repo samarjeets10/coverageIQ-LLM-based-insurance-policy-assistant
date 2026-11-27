@@ -100,7 +100,7 @@ _NON_FILTER_PROFILE_FIELDS = frozenset(
 def _is_missing(value: Any) -> bool:
     if value is None:
         return True
-    if isinstance(value, float) and math.isnan(value):
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return True
     if isinstance(value, str) and not value.strip():
         return True
@@ -108,11 +108,27 @@ def _is_missing(value: Any) -> bool:
 
 
 def _to_optional_int(value: Any) -> int | None:
-    return None if _is_missing(value) else int(value)
+    if _is_missing(value) or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        numeric = float(value)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return int(numeric) if numeric.is_integer() else None
 
 
 def _to_optional_float(value: Any) -> float | None:
-    return None if _is_missing(value) else float(value)
+    if _is_missing(value) or isinstance(value, bool):
+        return None
+    try:
+        converted = float(value)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return converted if math.isfinite(converted) else None
 
 
 def _to_optional_bool(value: Any) -> bool | None:
@@ -205,14 +221,7 @@ def _coerce_profile(profile: UserProfileRequest | Mapping[str, Any]) -> UserProf
 
 
 def _check_mandatory_policy_fields(policy: Mapping[str, Any], acc: _RuleAccumulator) -> bool:
-    """Verify core policy attributes exist before numeric or domain comparisons."""
-    required_numeric = (
-        "min_entry_age",
-        "max_entry_age",
-        "annual_premium_min",
-        "annual_premium_max",
-        "sum_insured_max",
-    )
+    """Verify core policy attributes exist, parse as finite numbers, and satisfy bounds."""
     missing_fields: list[str] = []
     if _is_missing(policy.get("policy_type")):
         missing_fields.append("policy_type")
@@ -220,16 +229,51 @@ def _check_mandatory_policy_fields(policy: Mapping[str, Any], acc: _RuleAccumula
         policy.get("policy_status") if "policy_status" in policy else policy.get("status")
     ):
         missing_fields.append("policy_status")
-    for field in required_numeric:
-        if _is_missing(policy.get(field)):
-            missing_fields.append(field)
+
+    min_age = _to_optional_int(policy.get("min_entry_age"))
+    max_age = _to_optional_int(policy.get("max_entry_age"))
+    prem_min = _to_optional_float(policy.get("annual_premium_min"))
+    prem_max = _to_optional_float(policy.get("annual_premium_max"))
+    sum_max = _to_optional_float(policy.get("sum_insured_max"))
+
+    for field_name, parsed_val in (
+        ("min_entry_age", min_age),
+        ("max_entry_age", max_age),
+        ("annual_premium_min", prem_min),
+        ("annual_premium_max", prem_max),
+        ("sum_insured_max", sum_max),
+    ):
+        if parsed_val is None:
+            missing_fields.append(field_name)
 
     if missing_fields:
         acc.fail_rule(
             "MISSING_MANDATORY_POLICY_DATA",
-            f"Policy is missing mandatory attribute(s): {', '.join(missing_fields)}",
-            expected="all mandatory policy attributes populated",
+            (
+                "Policy is missing mandatory or valid numeric attribute(s): "
+                f"{', '.join(missing_fields)}"
+            ),
+            expected="all mandatory policy attributes populated with finite numbers",
             actual=missing_fields,
+        )
+        return False
+
+    assert min_age is not None and max_age is not None
+    assert prem_min is not None and prem_max is not None and sum_max is not None
+    invalid_bounds: list[str] = []
+    if min_age < 0 or max_age > 120 or min_age > max_age:
+        invalid_bounds.append("entry_age_range")
+    if prem_min < 0 or prem_max < prem_min:
+        invalid_bounds.append("annual_premium_range")
+    if sum_max <= 0:
+        invalid_bounds.append("sum_insured_max")
+
+    if invalid_bounds:
+        acc.fail_rule(
+            "INVALID_POLICY_METADATA",
+            f"Policy failed numeric domain integrity check(s): {', '.join(invalid_bounds)}",
+            expected="valid finite non-inverted age/premium/sum_insured bounds",
+            actual=invalid_bounds,
         )
         return False
 
@@ -395,8 +439,21 @@ def _check_common_rules(
                 actual="pan_india" if pan_india else regions,
             )
 
-    min_tenure = _to_optional_int(policy.get("min_tenure_years"))
-    max_tenure = _to_optional_int(policy.get("max_tenure_years"))
+    pol_meta: dict[str, Any] | None = None
+    if profile.policy_type in ("life", "term") and pol_type in ("life", "term"):
+        pol_meta = _parse_metadata_dict(policy.get("type_specific_metadata"))
+
+    min_tenure = (
+        _to_optional_int(pol_meta.get("policy_term_years_min")) if pol_meta is not None else None
+    )
+    if min_tenure is None:
+        min_tenure = _to_optional_int(policy.get("min_tenure_years"))
+
+    max_tenure = (
+        _to_optional_int(pol_meta.get("policy_term_years_max")) if pol_meta is not None else None
+    )
+    if max_tenure is None:
+        max_tenure = _to_optional_int(policy.get("max_tenure_years"))
     if min_tenure is None or max_tenure is None:
         acc.fail_rule(
             "TENURE_COMPATIBILITY",
@@ -716,9 +773,9 @@ def _check_life_and_term_common(
     acc: _RuleAccumulator,
 ) -> None:
     """Check life cover bounds, policy term compatibility, and premium payment term."""
-    cover_max = _to_optional_float(meta.get("life_cover_max")) or _to_optional_float(
-        policy.get("sum_insured_max")
-    )
+    cover_max = _to_optional_float(meta.get("life_cover_max"))
+    if cover_max is None:
+        cover_max = _to_optional_float(policy.get("sum_insured_max"))
     if cover_max is None or cover_max < profile.min_sum_insured:
         acc.fail_rule(
             f"{prefix}_COVER_MIN",
@@ -729,9 +786,9 @@ def _check_life_and_term_common(
     else:
         acc.pass_rule(f"{prefix}_COVER_MIN")
 
-    cover_min = _to_optional_float(meta.get("life_cover_min")) or _to_optional_float(
-        policy.get("sum_insured_min")
-    )
+    cover_min = _to_optional_float(meta.get("life_cover_min"))
+    if cover_min is None:
+        cover_min = _to_optional_float(policy.get("sum_insured_min"))
     if profile.max_sum_insured is not None and cover_min is not None:
         if cover_min > profile.max_sum_insured:
             acc.fail_rule(
@@ -901,7 +958,17 @@ def filter_policies(
     evaluations: list[PolicyFilterEvaluation] = []
     eliminations: list[FilterEliminationReason] = []
 
+    seen_policy_ids: set[str] = set()
     for policy in candidate_policies:
+        raw_pid = policy.get("policy_id") if "policy_id" in policy else policy.get("id")
+        if not _is_missing(raw_pid):
+            pid_key = str(raw_pid).strip()
+            if pid_key in seen_policy_ids:
+                raise DuplicateCatalogPolicyError(
+                    f"Duplicate policy_id detected in candidate policies: {pid_key}"
+                )
+            seen_policy_ids.add(pid_key)
+
         evaluation = evaluate_policy_eligibility(normalized_profile, policy)
         evaluations.append(evaluation)
 
@@ -1134,5 +1201,9 @@ def filter_policies_from_db(
 ) -> HardFilterResult:
     """Load catalog policies from PostgreSQL and apply deterministic filtering."""
     normalized_profile = _coerce_profile(profile)
-    candidates = load_catalog_policies_from_db(conn, active_only=False)
+    candidates = load_catalog_policies_from_db(
+        conn,
+        policy_type=normalized_profile.policy_type,
+        active_only=False,
+    )
     return filter_policies(normalized_profile, candidates)

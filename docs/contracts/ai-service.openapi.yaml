@@ -687,6 +687,11 @@ components:
         policy_id:
           type: string
           title: Policy Id
+        policy_version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Policy Version Id
         policy_name:
           type: string
           title: Policy Name

@@ -49,6 +49,7 @@ from ai_service.recommendation.citations import (
     NullCitationProvider,
     PolicyCitationRequest,
     RecommendationCitationProvider,
+    normalize_and_validate_citation,
 )
 from ai_service.recommendation.features import (
     FEATURE_COLUMNS,
@@ -505,11 +506,19 @@ def _resolve_top_n_citations(
     validated: dict[str, list[dict[str, Any]]] = {}
     for req in requests:
         entries = citations_by_policy.get(req.policy_id, [])
-        if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
+        if not isinstance(entries, list):
             raise InferenceProcessingError(
                 "Citation provider returned invalid citation entries for policy."
             )
-        validated[req.policy_id] = list(entries)
+        normalized_entries: list[dict[str, Any]] = []
+        for item in entries:
+            try:
+                normalized_entries.append(normalize_and_validate_citation(item))
+            except ValueError as exc:
+                raise InferenceProcessingError(
+                    "Citation provider returned invalid citation entries for policy."
+                ) from exc
+        validated[req.policy_id] = normalized_entries
     return validated
 
 
@@ -675,6 +684,23 @@ def recommend_policies_for_request(
     t_filter_start = time.perf_counter()
     try:
         filter_result = filter_policies(request.profile, candidate_policies)
+    except DuplicateCatalogPolicyError as exc:
+        timings_ms["filter"] = (time.perf_counter() - t_filter_start) * 1000.0
+        timings_ms["total"] = (time.perf_counter() - t_total_start) * 1000.0
+        emit_structured_event(
+            logger,
+            level=logging.ERROR,
+            event="recommendation.catalog_integrity_error",
+            message="Duplicate policy_id rows detected during eligibility filtering.",
+            request_id=resolved_request_id,
+            policy_type=request.profile.policy_type,
+            ranking_model_requested=request.ranking_model,
+            model_used=model_name,
+            latency_ms=_round_timings(timings_ms),
+        )
+        raise CatalogIntegrityError(
+            "Catalog integrity error: duplicate policy_id entries detected in catalog."
+        ) from exc
     except (MissingMandatoryProfileError, ValueError, TypeError) as exc:
         timings_ms["filter"] = (time.perf_counter() - t_filter_start) * 1000.0
         timings_ms["total"] = (time.perf_counter() - t_total_start) * 1000.0
@@ -826,7 +852,7 @@ def recommend_policies_for_request(
         )
     except InferenceProcessingError:
         raise
-    except (ValueError, TypeError, RuntimeError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
         timings_ms["citations"] = (time.perf_counter() - t_cit_start) * 1000.0
         timings_ms["total"] = (time.perf_counter() - t_total_start) * 1000.0
         emit_structured_event(
@@ -848,6 +874,7 @@ def recommend_policies_for_request(
     for rank_num, orig_idx in enumerate(top_indices, start=1):
         pol = eligible_policies[orig_idx]
         policy_id = str(pol["policy_id"])
+        raw_pv_id = pol.get("policy_version_id")
         feature_row = feature_matrix.iloc[orig_idx]
         breakdown = _build_feature_breakdown(feature_row)
         if weighted_breakdowns is not None:
@@ -856,6 +883,7 @@ def recommend_policies_for_request(
         recommendations.append(
             RecommendedPolicy(
                 policy_id=policy_id,
+                policy_version_id=str(raw_pv_id) if raw_pv_id is not None else None,
                 policy_name=str(pol.get("policy_name") or pol.get("name") or "Unnamed Policy"),
                 insurer_name=(
                     str(pol["insurer_name"]) if pol.get("insurer_name") is not None else None

@@ -264,7 +264,8 @@ def test_version_aware_query_selects_current_excludes_stale_and_handles_null(
 
         # Verify SQLAlchemy query against SQLite database (table exists)
         monkeypatch.setattr(
-            "ai_service.recommendation.filters.check_policy_attributes_table_exists", lambda _c: True
+            "ai_service.recommendation.filters.check_policy_attributes_table_exists",
+            lambda _c: True,
         )
         with eng.connect() as conn:
             rows = load_catalog_policies_from_db(conn, active_only=True)

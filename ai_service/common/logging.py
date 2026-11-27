@@ -23,8 +23,11 @@ _SENSITIVE_KEY_SUBSTRINGS: tuple[str, ...] = (
 _PII_KEY_NAMES: frozenset[str] = frozenset(
     {
         "profile",
+        "scope",
         "annual_income_inr",
         "annual_income",
+        "monthly_budget_inr",
+        "monthly_budget",
         "pre_existing_conditions",
         "smoking_status",
         "location",

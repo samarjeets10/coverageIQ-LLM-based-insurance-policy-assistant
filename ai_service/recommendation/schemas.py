@@ -164,6 +164,13 @@ class TrustedScope(BaseModel):
             return stripped or None
         return value
 
+    @field_validator("role", mode="before")
+    @classmethod
+    def _normalize_scope_role(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
 
 class RecommendRequest(BaseModel):
     """Unified recommendation payload supporting nested or flat profile payloads."""
@@ -252,6 +259,7 @@ class RecommendedPolicy(BaseModel):
     """Single ranked policy entry in Top-N recommendations."""
 
     policy_id: str
+    policy_version_id: str | None = None
     policy_name: str
     insurer_name: str | None = None
     policy_type: str

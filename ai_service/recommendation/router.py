@@ -49,6 +49,10 @@ def verify_service_token(
     x_service_token: Annotated[str | None, Depends(_service_token_header)] = None,
 ) -> None:
     """Enforce constant-time X-Service-Token authentication (fail-closed outside dev)."""
+    raw_req_id = request.headers.get("X-Request-ID")
+    req_id = raw_req_id.strip()[:128] if raw_req_id and raw_req_id.strip() else None
+    err_headers = {"X-Request-ID": req_id} if req_id else None
+
     settings: Settings = request.app.state.settings
     token_secret = settings.ai_service_token
     expected = token_secret.get_secret_value().strip() if token_secret is not None else ""
@@ -60,23 +64,41 @@ def verify_service_token(
                 level=logging.ERROR,
                 event="auth.misconfigured",
                 message="Service token enforcement active without configured token.",
+                request_id=req_id,
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or missing service token",
+                headers=err_headers,
             )
     elif token_secret is None:
         return
     elif not expected:
+        emit_structured_event(
+            logger,
+            level=logging.WARNING,
+            event="auth.rejected",
+            message="Service token authentication failed: configured token is empty.",
+            request_id=req_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing service token",
+            headers=err_headers,
         )
 
     if not x_service_token or not hmac.compare_digest(x_service_token, expected):
+        emit_structured_event(
+            logger,
+            level=logging.WARNING,
+            event="auth.rejected",
+            message="Service token authentication failed.",
+            request_id=req_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing service token",
+            headers=err_headers,
         )
 
 
@@ -178,22 +200,26 @@ def recommend_policies(
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail=str(exc),
+            headers={"X-Request-ID": request_id},
         ) from exc
     except ServiceDependencyUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
+            headers={"X-Request-ID": request_id},
         ) from exc
     except InferenceProcessingError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
+            headers={"X-Request-ID": request_id},
         ) from exc
     except ValueError as exc:
         logger.exception("Unhandled ValueError guarded at router boundary [%s]", request_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Recommendation request failed internal data validation.",
+            headers={"X-Request-ID": request_id},
         ) from exc
 
     if result.request_id:

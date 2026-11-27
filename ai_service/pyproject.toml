@@ -28,8 +28,12 @@ include = [
     "tests/test_schemas.py",
     "tests/test_stage8b_versioning_and_schema.py",
     "tests/test_stage9a_robustness.py",
+    "tests/test_stage10a_m5_completion.py",
     "tests/test_train_lightgbm.py",
 ]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ai_service"]

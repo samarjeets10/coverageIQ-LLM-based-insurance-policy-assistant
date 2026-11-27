@@ -48,6 +48,12 @@ python -m uvicorn ai_service.main:app --host 127.0.0.1 --port 8000 --reload
 # Export / verify frozen OpenAPI contract
 python -m ai_service.recommendation.openapi_export
 
+# Run Ruff checks (from ai_service/)
+cd ai_service
+python -m ruff format --check .
+python -m ruff check .
+cd ..
+
 # Run complete unified test suite (M3/M7/M8 + M5)
 python -m pytest ai_service/tests/ -v
 ```

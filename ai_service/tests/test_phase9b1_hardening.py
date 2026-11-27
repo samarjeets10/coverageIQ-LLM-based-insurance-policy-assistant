@@ -130,7 +130,9 @@ def _mock_app(
         yield mock_conn
 
     app.dependency_overrides[get_db_connection] = _override_conn
-    monkeypatch.setattr("ai_service.main.check_database_connection", lambda _c: {"database": "coverageiq_db"})
+    monkeypatch.setattr(
+        "ai_service.main.check_database_connection", lambda _c: {"database": "coverageiq_db"}
+    )
     monkeypatch.setattr(
         "ai_service.main.inspect_database_readiness",
         lambda _c: {

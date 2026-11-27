@@ -581,21 +581,20 @@ def _extract_from_normalized(
 
     # Life & Term shared features (zeroed for Health & Car)
     is_life_or_term = is_life == 1.0 or is_term == 1.0
+    raw_life_cover = _to_optional_float(meta.get("life_cover_max"))
     life_cover = (
-        (_to_optional_float(meta.get("life_cover_max")) or sum_insured) if is_life_or_term else 0.0
+        (raw_life_cover if raw_life_cover is not None else sum_insured) if is_life_or_term else 0.0
     )
     req_life_cover = req_sum if is_life_or_term else 0.0
     life_cover_ratio = _safe_divide(life_cover, req_life_cover) if is_life_or_term else 0.0
+    raw_policy_term = _to_optional_float(meta.get("policy_term_years_max"))
     policy_term = (
-        (_to_optional_float(meta.get("policy_term_years_max")) or pol["max_tenure_years"])
+        (raw_policy_term if raw_policy_term is not None else pol["max_tenure_years"])
         if is_life_or_term
         else 0.0
     )
-    ppt_years = (
-        (_to_optional_float(meta.get("premium_payment_term_years")) or 0.0)
-        if is_life_or_term
-        else 0.0
-    )
+    raw_ppt_years = _to_optional_float(meta.get("premium_payment_term_years"))
+    ppt_years = (raw_ppt_years if raw_ppt_years is not None else 0.0) if is_life_or_term else 0.0
 
     features: dict[str, float] = {
         # Category & availability indicators

@@ -218,7 +218,9 @@ def _app_with_mock_catalog(
         def _raise(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
             raise catalog
 
-        monkeypatch.setattr("ai_service.recommendation.service.load_catalog_policies_from_db", _raise)
+        monkeypatch.setattr(
+            "ai_service.recommendation.service.load_catalog_policies_from_db", _raise
+        )
     else:
         monkeypatch.setattr(
             "ai_service.recommendation.service.load_catalog_policies_from_db",
