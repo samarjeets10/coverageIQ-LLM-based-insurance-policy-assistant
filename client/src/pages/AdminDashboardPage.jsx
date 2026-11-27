@@ -1,20 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
-  Activity,
   Building2,
   FileText,
   LayoutDashboard,
   ScrollText,
-  ShieldCheck,
   UserCog,
   Users,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
-import {
-  DashboardCard,
-  DashboardToolbar,
-} from '@/components/dashboard/DashboardWidgets';
-import { Badge } from '@/components/ui/badge';
+import { DashboardCard } from '@/components/dashboard/DashboardWidgets';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 const ADMIN_NAV_GROUPS = [
   {
@@ -23,91 +19,43 @@ const ADMIN_NAV_GROUPS = [
       { id: 'users', label: 'Users & Roles', icon: Users },
       { id: 'organisations', label: 'Organisations', icon: Building2 },
       { id: 'policies', label: 'All Policies', icon: FileText },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { id: 'jobs', label: 'Ingestion Jobs', icon: Activity },
       { id: 'audit', label: 'Audit Logs', icon: ScrollText },
     ],
   },
 ];
 
-const ADMIN_MODULES = [
+const ADMIN_ACTIONS = [
   {
-    id: 'rbac-control',
-    category: 'governance',
-    title: 'RBAC Role Control',
-    description: 'Assign or update platform roles across User, Organisation, and Admin.',
-    badge: <Badge variant="accent">RBAC</Badge>,
-    preview: (
-      <>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Platform Roles</span>
-          <span className="font-medium text-blue-600">3 roles</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 text-xs">
-          <span className="rounded bg-white px-2.5 py-1 border border-slate-200">user</span>
-          <span className="rounded bg-white px-2.5 py-1 border border-slate-200">organisation</span>
-          <span className="rounded bg-slate-900 px-2.5 py-1 text-white">admin</span>
-        </div>
-      </>
-    ),
+    id: 'users',
+    title: 'Users & Roles',
+    description:
+      'Assign and update platform roles across User, Organisation, and Admin accounts.',
+    icon: Users,
+    actionLabel: 'Manage Roles',
   },
   {
-    id: 'org-approvals',
-    category: 'governance',
-    title: 'Organisation Oversight',
-    description: 'Review registered organisations and catalog publishing permissions.',
-    badge: <Badge variant="success">Verified</Badge>,
-    preview: (
-      <>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Catalog Governance</span>
-          <ShieldCheck className="h-4 w-4 text-emerald-600" />
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-600">
-          Approve or suspend organisation access
-        </div>
-      </>
-    ),
+    id: 'organisations',
+    title: 'Organisations',
+    description:
+      'Review registered organisations and oversee catalog publishing access.',
+    icon: Building2,
+    actionLabel: 'View Organisations',
   },
   {
-    id: 'ingestion-monitor',
-    category: 'system',
-    title: 'Ingestion Monitor',
-    description: 'Track queued, processing, and failed PDF ingestion jobs.',
-    badge: <Badge variant="default">Jobs</Badge>,
-    preview: (
-      <>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Pipeline Health</span>
-          <span className="font-medium text-emerald-700">Healthy</span>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-600">
-          PostgreSQL + API connected
-        </div>
-      </>
-    ),
+    id: 'policies',
+    title: 'All Policies',
+    description:
+      'Inspect policy records and ingestion statuses across the platform.',
+    icon: FileText,
+    actionLabel: 'Browse Policies',
   },
   {
-    id: 'audit-trail',
-    category: 'system',
+    id: 'audit',
     title: 'Audit Logs',
-    description: 'Inspect security events, role changes, and policy actions.',
-    badge: <Badge variant="default">Logs</Badge>,
-    preview: (
-      <>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Audit Trail</span>
-          <span className="font-medium text-slate-900">Recorded</span>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-600">
-          Every actor, resource, and timestamp logged
-        </div>
-      </>
-    ),
+    description:
+      'Review security events, role updates, and system activity trails.',
+    icon: ScrollText,
+    actionLabel: 'View Logs',
   },
 ];
 
@@ -116,26 +64,11 @@ const TAB_TITLES = {
   users: 'Users & Roles',
   organisations: 'Organisations',
   policies: 'All Policies',
-  jobs: 'Ingestion Jobs',
   audit: 'Audit Logs',
-  settings: 'Settings',
-  help: 'Help & Docs',
 };
 
 export function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
-  const [filter, setFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredModules = useMemo(() => {
-    return ADMIN_MODULES.filter((item) => {
-      const matchesFilter = filter === 'all' || item.category === filter;
-      const matchesSearch =
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesFilter && matchesSearch;
-    });
-  }, [filter, searchQuery]);
 
   return (
     <DashboardLayout
@@ -149,37 +82,39 @@ export function AdminDashboardPage() {
         onClick: () => setActiveTab('users'),
       }}
     >
-      <div className="space-y-8">
-        <DashboardToolbar
-          tabs={[
-            { id: 'all', label: 'All Modules' },
-            { id: 'governance', label: 'Governance' },
-            { id: 'system', label: 'System' },
-          ]}
-          activeFilter={filter}
-          onFilterChange={setFilter}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="Search admin tools..."
-        />
-
+      {activeTab === 'overview' ? (
         <section className="space-y-4">
           <h2 className="text-base font-semibold text-slate-900">
             Platform Governance
           </h2>
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {filteredModules.map((item) => (
+          <div className="grid gap-5 sm:grid-cols-2">
+            {ADMIN_ACTIONS.map((item) => (
               <DashboardCard
                 key={item.id}
                 title={item.title}
                 description={item.description}
-                badge={item.badge}
-                preview={item.preview}
+                icon={item.icon}
+                actionLabel={item.actionLabel}
+                onClick={() => setActiveTab(item.id)}
               />
             ))}
           </div>
         </section>
-      </div>
+      ) : (
+        <Card className="p-8 text-center">
+          <h2 className="text-lg font-semibold text-slate-900">
+            {TAB_TITLES[activeTab]}
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+            No records yet. This section is ready for live platform data.
+          </p>
+          <div className="mt-5">
+            <Button variant="secondary" size="sm" onClick={() => setActiveTab('overview')}>
+              Back to Overview
+            </Button>
+          </div>
+        </Card>
+      )}
     </DashboardLayout>
   );
 }
