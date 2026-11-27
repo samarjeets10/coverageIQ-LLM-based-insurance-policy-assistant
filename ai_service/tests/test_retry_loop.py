@@ -6,6 +6,7 @@ from ai_service.schemas.structured_output import DecisionType
 @pytest.fixture(autouse=True)
 def _offline_llm_for_retry_loop_tests(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "offline")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
 
 def test_closed_retry_loop_hospitalization_covered():
     orchestrator = ClosedRetryLoopOrchestrator()

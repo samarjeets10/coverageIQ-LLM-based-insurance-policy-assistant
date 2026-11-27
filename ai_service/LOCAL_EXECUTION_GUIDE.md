@@ -1,9 +1,9 @@
 # CoverageIQ — Local Execution & Verification Guide
 
-**Module:** Core Intelligence & Verification Engine (6C Query Retrieval & Evaluator)  
-**Assigned Developer:** Mr. Yash Shankar Nimbalkar   
-**Project:** CoverageIQ – An Evidence-Grounded Insurance Policy Intelligence System  
-**Core Architectural Mandate:** **`NO EVIDENCE = NO CLAIM`**  
+**Module:** Core Intelligence & Verification Engine (6C Query Retrieval & Evaluator)
+**Assigned Developer:** Mr. Yash Shankar Nimbalkar
+**Project:** CoverageIQ – An Evidence-Grounded Insurance Policy Intelligence System
+**Core Architectural Mandate:** **`NO EVIDENCE = NO CLAIM`**
 
 ---
 
@@ -121,16 +121,17 @@ python -c "from ai_service.evaluator.retry_controller import ClosedRetryLoopOrch
 ### Method 3: Start the Live FastAPI Server & Send Queries
 
 #### 1. Start the Server:
+*(The Node.js API gateway defaults to port `8000`, while the internal Python AI service defaults to port `8001`.)*
 ```powershell
-python -m uvicorn ai_service.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn ai_service.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 The interactive Swagger API documentation will be available at:
-👉 **`http://127.0.0.1:8000/docs`**
+👉 **`http://127.0.0.1:8001/docs`**
 
 #### 2. Check Server Health:
 Open a separate PowerShell window and run:
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/ai/health" -Method Get | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/ai/health" -Method Get | ConvertTo-Json
 ```
 
 #### 3. Send a Coverage Query:
@@ -140,7 +141,7 @@ $body = @{
     question = "Is hospitalization covered under this policy?"
 } | ConvertTo-Json
 
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/ai/ask" -Method Post -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/ai/ask" -Method Post -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 5
 ```
 
 ---

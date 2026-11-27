@@ -1,7 +1,14 @@
+import pytest
 from ai_service.retrieval.dense_retriever import DenseVectorRetriever
 from ai_service.retrieval.bm25_retriever import BM25Retriever
 from ai_service.retrieval.rrf_fusion import RRFFusion
 from ai_service.database import get_knowledge_base
+
+
+@pytest.fixture(autouse=True)
+def _offline_embeddings_for_unit_test(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
+
 
 def test_hybrid_search_and_rrf():
     kb = get_knowledge_base()
@@ -13,7 +20,7 @@ def test_hybrid_search_and_rrf():
     rrf = RRFFusion(k=60, weight_vector=0.6, weight_bm25=0.4)
 
     query = "maternity delivery expenses waiting period"
-    
+
     vec_results = dense.search(query, chunks, top_n=5)
     bm25_results = bm25.search(query, chunks, top_n=5)
 

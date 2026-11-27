@@ -9,6 +9,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _offline_llm_for_endpoint_tests(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "offline")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     routes_qa._orchestrator = None
     yield
     routes_qa._orchestrator = None

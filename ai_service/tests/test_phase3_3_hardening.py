@@ -253,6 +253,7 @@ def test_truncated_json_raises_llm_json_parse_error_without_offline_fallback(mon
 
 
 def test_token_exhaustion_never_converts_into_policy_decision_end_to_end(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     def length_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -525,7 +526,8 @@ def test_empty_insufficient_evidence_skips_verifier_llm_call():
         http_client.close()
 
 
-def test_orchestrator_skips_verifier_call_on_empty_insufficient_evidence():
+def test_orchestrator_skips_verifier_call_on_empty_insufficient_evidence(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     gen_calls = 0
     ver_calls = 0
 

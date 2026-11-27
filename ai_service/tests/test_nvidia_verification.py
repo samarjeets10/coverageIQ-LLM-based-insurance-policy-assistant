@@ -31,6 +31,11 @@ from ai_service.schemas.structured_output import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _offline_embeddings_for_verification_tests(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
+
+
 def _provider_from_handler(handler: Callable[[httpx.Request], httpx.Response], *, max_retries: int = 0):
     http_client = httpx.Client(transport=httpx.MockTransport(handler))
     provider = NvidiaNemotronProvider(

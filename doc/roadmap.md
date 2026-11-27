@@ -48,7 +48,7 @@ The frontend and Auth run **in parallel** from Phase 1 (see below) so UI work is
 | Track | Tasks |
 |---|---|
 | Ingestion (M2) | **Node:** upload endpoint (multer), file storage, job rows, `GET /jobs/:id`. **Python:** PyMuPDF extraction; page-number preservation; section/clause/table detection; semantic chunker with 4 labels; Celery job updating job status |
-| Knowledge Base (M3) | DB schema + migrations (Alembic); pgvector HNSW; `tsvector` GIN; `hybrid_search`, RRF, `get_chunk` |
+| Knowledge Base (M3) | DB schema + Node-owned SQL migrations (`node-pg-migrate`); pgvector HNSW; `tsvector` GIN; `hybrid_search`, RRF, `get_chunk` |
 | Auth (M1) — parallel (Node) | Register/login/JWT, `requireRole` middleware, forbidden-access tests, trusted-scope + service-token plumbing to the AI service |
 | Frontend — parallel | Vite + React + Tailwind scaffold, login, upload page with job status |
 | Eval (M12) | Write **100 Q&A gold pairs** across the 10 policies (everyone helps) |

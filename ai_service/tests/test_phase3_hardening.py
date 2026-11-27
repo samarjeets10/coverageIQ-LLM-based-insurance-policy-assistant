@@ -107,6 +107,7 @@ def test_closed_nvidia_provider_cannot_be_reused():
 
 def test_fastapi_lifespan_closes_and_resets_orchestrator(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "nvidia")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-lifespan-key")
     routes_qa.close_orchestrator()
 
@@ -620,7 +621,8 @@ def test_insufficient_evidence_with_non_empty_claims_and_invalid_citations():
 # =============================================================================
 # 6. Retry Evidence Expansion & Exhaustion Tests
 # =============================================================================
-def test_retry_expands_evidence_from_5_to_8_chunks_and_exhausts_without_leaking_claims():
+def test_retry_expands_evidence_from_5_to_8_chunks_and_exhausts_without_leaking_claims(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     kb = MockKnowledgeBase()
     ten_chunks = [
         PolicyChunk(
@@ -637,10 +639,13 @@ def test_retry_expands_evidence_from_5_to_8_chunks_and_exhausts_without_leaking_
 
     gen_evidence_counts: List[int] = []
     ver_evidence_counts: List[int] = []
+    latest_chunk_id: List[str] = ["chk_exp_01"]
 
     class RecordingGenerator(GroundedGenerator):
         def generate_draft(self, query: str, evidence: List[PolicyChunk]):
             gen_evidence_counts.append(len(evidence))
+            if evidence:
+                latest_chunk_id[0] = evidence[0].chunk_id
             return super().generate_draft(query, evidence)
 
     class RecordingEvaluator(EvaluatorAgent):
@@ -661,7 +666,7 @@ def test_retry_expands_evidence_from_5_to_8_chunks_and_exhausts_without_leaking_
                             "conditions": ["Speculative condition"],
                             "claims": [{
                                 "text": "Unsupported speculative claim.",
-                                "chunk_ids": ["chk_exp_01"],
+                                "chunk_ids": [latest_chunk_id[0]],
                                 "claim_type": "coverage",
                             }],
                         }),
@@ -742,6 +747,7 @@ def test_api_ask_end_to_end_real_orchestrator_sanitizes_errors(monkeypatch, capl
     sensitive_question = "Sensitive policyholder query about cancer treatment"
 
     monkeypatch.setenv("LLM_PROVIDER", "nvidia")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "offline")
     if scenario == "config_missing_key":
         monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     else:

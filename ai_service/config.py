@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
 from typing import Optional
-from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
+from pydantic import BaseModel, Field, model_validator
 
 
 def _load_local_env_file() -> None:
@@ -37,28 +38,105 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw not in (None, "") else default
 
 
-class Settings(BaseModel):
-    # Service settings
-    SERVICE_NAME: str = "coverageIQ-ai-service"
-    PORT: int = 8000
-    HOST: str = "127.0.0.1"
-    DEBUG: bool = True
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    val = raw.strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(f"Invalid boolean value for {name}: '{raw}'.")
 
-    # Database settings
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql://coverageiq:coverageiq@localhost:5432/coverageiq_db"
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip()
+
+
+def _env_optional_str(name: str) -> Optional[str]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip()
+
+
+def _redact_url_credentials(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+        if parsed.password:
+            user = parsed.username or ""
+            host = parsed.hostname or ""
+            port = f":{parsed.port}" if parsed.port else ""
+            netloc = f"{user}:***@{host}{port}" if user else f"***@{host}{port}"
+            return parsed._replace(netloc=netloc).geturl()
+    except Exception:
+        pass
+    return url
+
+
+class Settings(BaseModel):
+    # Service settings (Node gateway runs on 8000; internal FastAPI AI service runs on 8001)
+    SERVICE_NAME: str = "coverageIQ-ai-service"
+    PORT: int = Field(default_factory=lambda: _env_int("PORT", 8001))
+    HOST: str = Field(default_factory=lambda: _env_str("HOST", "127.0.0.1"))
+    DEBUG: bool = Field(default_factory=lambda: _env_bool("DEBUG", True))
+
+    # Internal Service Integration & Upload Storage
+    INTERNAL_SERVICE_TOKEN: Optional[str] = Field(
+        default_factory=lambda: _env_optional_str("INTERNAL_SERVICE_TOKEN")
     )
-    USE_MOCK_STORAGE: bool = os.getenv("USE_MOCK_STORAGE", "true").lower() in ("true", "1", "yes")
+    POLICY_UPLOAD_ROOT: str = Field(
+        default_factory=lambda: _env_str("POLICY_UPLOAD_ROOT", "./uploads/policies")
+    )
+
+    # Database settings (Node.js owns PostgreSQL migrations via node-pg-migrate)
+    DATABASE_URL: str = Field(
+        default_factory=lambda: _env_str(
+            "DATABASE_URL",
+            "postgresql://coverageiq:coverageiq@localhost:5432/coverageiq_db",
+        )
+    )
+    USE_MOCK_STORAGE: bool = Field(default_factory=lambda: _env_bool("USE_MOCK_STORAGE", True))
+    POSTGRES_POOL_MIN_SIZE: int = Field(default_factory=lambda: _env_int("POSTGRES_POOL_MIN_SIZE", 1))
+    POSTGRES_POOL_MAX_SIZE: int = Field(default_factory=lambda: _env_int("POSTGRES_POOL_MAX_SIZE", 10))
+    POSTGRES_POOL_TIMEOUT: float = Field(default_factory=lambda: _env_float("POSTGRES_POOL_TIMEOUT", 30.0))
+
+    # Celery & Redis Async Ingestion Settings
+    REDIS_URL: str = Field(default_factory=lambda: _env_str("REDIS_URL", "redis://localhost:6379/0"))
+    CELERY_BROKER_URL: str = Field(
+        default_factory=lambda: _env_optional_str("CELERY_BROKER_URL")
+        or _env_str("REDIS_URL", "redis://localhost:6379/0")
+    )
+    CELERY_RESULT_BACKEND: str = Field(
+        default_factory=lambda: _env_optional_str("CELERY_RESULT_BACKEND")
+        or _env_str("REDIS_URL", "redis://localhost:6379/0")
+    )
+
+    # Embedding Settings (BAAI/bge-m3, 1024-dim; weights loaded lazily by embedding service only)
+    EMBEDDING_PROVIDER: str = Field(default_factory=lambda: _env_str("EMBEDDING_PROVIDER", "bge-m3"))
+    EMBEDDING_MODEL_NAME: str = Field(
+        default_factory=lambda: _env_str("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
+    )
+    EMBEDDING_DIM: int = Field(default_factory=lambda: _env_int("EMBEDDING_DIM", 1024))
+    EMBEDDING_BATCH_SIZE: int = Field(default_factory=lambda: _env_int("EMBEDDING_BATCH_SIZE", 4))
+    EMBEDDING_DEVICE: str = Field(default_factory=lambda: _env_str("EMBEDDING_DEVICE", "auto"))
+    EMBEDDING_NORMALIZE: bool = Field(default_factory=lambda: _env_bool("EMBEDDING_NORMALIZE", True))
+    EMBEDDING_LOCAL_FILES_ONLY: bool = Field(
+        default_factory=lambda: _env_bool("EMBEDDING_LOCAL_FILES_ONLY", False)
+    )
 
     # LLM Settings
     LLM_PROVIDER: str = Field(default_factory=lambda: os.getenv("LLM_PROVIDER") or "nvidia")
-    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", None)
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_API_KEY: Optional[str] = Field(default_factory=lambda: _env_optional_str("GEMINI_API_KEY"))
+    GEMINI_MODEL: str = Field(default_factory=lambda: _env_str("GEMINI_MODEL", "gemini-2.0-flash"))
     LLM_TEMPERATURE: float = 0.0  # Zero temperature for deterministic grounding
 
     # NVIDIA Nemotron Provider Settings
-    NVIDIA_API_KEY: Optional[str] = Field(default_factory=lambda: os.getenv("NVIDIA_API_KEY") or None)
+    NVIDIA_API_KEY: Optional[str] = Field(default_factory=lambda: _env_optional_str("NVIDIA_API_KEY"))
     NVIDIA_BASE_URL: str = Field(
         default_factory=lambda: os.getenv("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     )
@@ -93,5 +171,58 @@ class Settings(BaseModel):
     OCR_DPI: int = 200
     OCR_LANG: str = os.getenv("OCR_LANG", "en")
     OCR_USE_ANGLE_CLS: bool = True
+
+    @model_validator(mode="after")
+    def validate_settings(self) -> "Settings":
+        """Validate and normalize service, database, and embedding configuration values."""
+        if self.PORT < 1 or self.PORT > 65535:
+            raise ValueError("PORT must be between 1 and 65535.")
+
+        provider = self.EMBEDDING_PROVIDER.strip().lower()
+        if provider not in ("bge-m3", "offline"):
+            raise ValueError("EMBEDDING_PROVIDER must be 'bge-m3' or 'offline'.")
+        self.EMBEDDING_PROVIDER = provider
+
+        model_name = self.EMBEDDING_MODEL_NAME.strip()
+        if not model_name:
+            raise ValueError("EMBEDDING_MODEL_NAME must not be empty.")
+        self.EMBEDDING_MODEL_NAME = model_name
+
+        if self.EMBEDDING_DIM <= 0:
+            raise ValueError("EMBEDDING_DIM must be a positive integer.")
+        if self.EMBEDDING_PROVIDER == "bge-m3" and self.EMBEDDING_DIM != 1024:
+            raise ValueError("EMBEDDING_DIM must be 1024 when EMBEDDING_PROVIDER is 'bge-m3'.")
+
+        if self.EMBEDDING_BATCH_SIZE <= 0:
+            raise ValueError("EMBEDDING_BATCH_SIZE must be a positive integer.")
+
+        device = self.EMBEDDING_DEVICE.strip().lower()
+        is_cuda_indexed = device.startswith("cuda:") and device[5:].isdigit()
+        if device not in ("auto", "cpu", "cuda") and not is_cuda_indexed:
+            raise ValueError("EMBEDDING_DEVICE must be 'auto', 'cpu', 'cuda', or 'cuda:<index>'.")
+        self.EMBEDDING_DEVICE = device
+
+        if self.POSTGRES_POOL_MIN_SIZE < 1:
+            raise ValueError("POSTGRES_POOL_MIN_SIZE must be at least 1.")
+        if self.POSTGRES_POOL_MAX_SIZE < self.POSTGRES_POOL_MIN_SIZE:
+            raise ValueError("POSTGRES_POOL_MAX_SIZE cannot be less than POSTGRES_POOL_MIN_SIZE.")
+        if self.POSTGRES_POOL_TIMEOUT <= 0:
+            raise ValueError("POSTGRES_POOL_TIMEOUT must be positive.")
+
+        return self
+
+    def __repr__(self) -> str:
+        nvidia_state = "configured" if self.NVIDIA_API_KEY else "unset"
+        gemini_state = "configured" if self.GEMINI_API_KEY else "unset"
+        token_state = "configured" if self.INTERNAL_SERVICE_TOKEN else "unset"
+        return (
+            f"Settings(SERVICE_NAME={self.SERVICE_NAME!r}, HOST={self.HOST!r}, PORT={self.PORT}, "
+            f"USE_MOCK_STORAGE={self.USE_MOCK_STORAGE}, DATABASE_URL={_redact_url_credentials(self.DATABASE_URL)!r}, "
+            f"EMBEDDING_PROVIDER={self.EMBEDDING_PROVIDER!r}, EMBEDDING_MODEL_NAME={self.EMBEDDING_MODEL_NAME!r}, "
+            f"EMBEDDING_DIM={self.EMBEDDING_DIM}, EMBEDDING_BATCH_SIZE={self.EMBEDDING_BATCH_SIZE}, "
+            f"EMBEDDING_DEVICE={self.EMBEDDING_DEVICE!r}, LLM_PROVIDER={self.LLM_PROVIDER!r}, "
+            f"NVIDIA_API_KEY={nvidia_state}, GEMINI_API_KEY={gemini_state}, INTERNAL_SERVICE_TOKEN={token_state})"
+        )
+
 
 settings = Settings()
