@@ -5,6 +5,7 @@ const app = require('./src/app');
 const {
     pool,
     checkDatabaseConnection,
+    runMigrations,
 } = require('./src/config/db');
 
 const PORT = Number(process.env.SERVER_PORT || 8000);
@@ -16,6 +17,8 @@ async function startServer() {
         console.log(
             `PostgreSQL connected: ${database.database}`
         );
+
+        await runMigrations();
 
         const server = app.listen(PORT, () => {
             console.log(`Server is running on port ${PORT}.`);
