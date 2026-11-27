@@ -1,8 +1,9 @@
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ai_service.config import settings
-from ai_service.api.routes_qa import router as qa_router
+from ai_service.api.routes_qa import close_orchestrator, router as qa_router
 
 logging.basicConfig(
     level=logging.INFO if settings.DEBUG else logging.WARNING,
@@ -10,10 +11,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("coverageiq.main")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        close_orchestrator()
+
+
 app = FastAPI(
     title="CoverageIQ AI Service",
     description="Evidence-Grounded Insurance Policy Intelligence System (Hybrid Search, Grounded LLM & Evaluator Agent)",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

@@ -1,7 +1,17 @@
+import pytest
 from fastapi.testclient import TestClient
+from ai_service.api import routes_qa
 from ai_service.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _offline_llm_for_endpoint_tests(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "offline")
+    routes_qa._orchestrator = None
+    yield
+    routes_qa._orchestrator = None
 
 def test_health_check_endpoint():
     response = client.get("/ai/health")

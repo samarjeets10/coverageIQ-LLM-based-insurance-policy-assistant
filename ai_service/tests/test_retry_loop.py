@@ -1,5 +1,11 @@
+import pytest
 from ai_service.evaluator.retry_controller import ClosedRetryLoopOrchestrator
 from ai_service.schemas.structured_output import DecisionType
+
+
+@pytest.fixture(autouse=True)
+def _offline_llm_for_retry_loop_tests(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "offline")
 
 def test_closed_retry_loop_hospitalization_covered():
     orchestrator = ClosedRetryLoopOrchestrator()
@@ -7,7 +13,7 @@ def test_closed_retry_loop_hospitalization_covered():
         query="Is in-patient hospitalization covered?",
         policy_id="policy_health_01"
     )
-    
+
     assert response.decision == DecisionType.COVERED
     assert response.evaluator_status == "VERIFIED_PASS"
     assert response.confidence_score >= 0.70
@@ -21,7 +27,7 @@ def test_closed_retry_loop_cosmetic_surgery_excluded():
         query="Can I claim for cosmetic surgery?",
         policy_id="policy_health_01"
     )
-    
+
     assert response.decision == DecisionType.NOT_COVERED
     assert response.evaluator_status == "VERIFIED_PASS"
     assert len(response.citations) > 0
@@ -33,7 +39,7 @@ def test_closed_retry_loop_maternity_conditional():
         query="Is maternity delivery covered?",
         policy_id="policy_health_01"
     )
-    
+
     assert response.decision == DecisionType.CONDITIONAL
     assert response.evaluator_status == "VERIFIED_PASS"
     assert len(response.conditions) > 0
@@ -45,7 +51,7 @@ def test_closed_retry_loop_unanswerable_fallback_insufficient_evidence():
         query="Does this policy pay for space travel accidents or dental implants?",
         policy_id="policy_health_01"
     )
-    
+
     # Enforces NO EVIDENCE = NO CLAIM: Never hallucinate!
     assert response.decision == DecisionType.INSUFFICIENT_EVIDENCE
     assert "VERIFIED" in response.evaluator_status

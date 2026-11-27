@@ -1,6 +1,12 @@
+import pytest
 from ai_service.evaluator.verifier import EvaluatorAgent
 from ai_service.database import get_knowledge_base
 from ai_service.schemas.structured_output import AtomicClaim
+
+
+@pytest.fixture(autouse=True)
+def _offline_evaluator_for_unit_tests(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "offline")
 
 def test_evaluator_passes_valid_evidence():
     kb = get_knowledge_base()
