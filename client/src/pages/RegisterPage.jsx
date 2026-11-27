@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Building2, User } from 'lucide-react';
 import { useAuth } from '@/context/useAuth';
+import { getDashboardPath } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -43,8 +44,8 @@ export function RegisterPage() {
     setSubmitting(true);
 
     try {
-      await register({ fullName, email, password, role });
-      navigate('/');
+      const createdUser = await register({ fullName, email, password, role });
+      navigate(getDashboardPath(createdUser?.platform_role), { replace: true });
     } catch (err) {
       setError(err.message || 'Registration failed');
     } finally {

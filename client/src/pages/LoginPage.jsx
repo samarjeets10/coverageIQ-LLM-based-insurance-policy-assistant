@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/context/useAuth';
+import { getDashboardPath } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -21,8 +23,11 @@ export function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login({ email, password });
-      navigate('/');
+      const loggedInUser = await login({ email, password });
+      const redirectTo =
+        location.state?.from?.pathname ||
+        getDashboardPath(loggedInUser?.platform_role);
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(err.message || 'Failed to sign in');
     } finally {

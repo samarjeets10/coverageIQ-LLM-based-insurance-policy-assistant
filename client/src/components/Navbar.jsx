@@ -3,6 +3,7 @@ import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/useAuth';
+import { getDashboardPath } from '@/lib/roles';
 
 export function Navbar() {
   const { user, loading, logout } = useAuth();
@@ -40,6 +41,9 @@ export function Navbar() {
                   {user.platform_role}
                 </Badge>
               </div>
+              <Link to={getDashboardPath(user.platform_role)}>
+                <Button size="sm">Dashboard</Button>
+              </Link>
               <Button variant="secondary" size="sm" onClick={logout}>
                 <LogOut className="h-4 w-4" />
                 Sign out

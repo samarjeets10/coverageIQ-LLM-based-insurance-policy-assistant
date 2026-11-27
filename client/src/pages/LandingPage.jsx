@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/context/useAuth';
+import { getDashboardPath } from '@/lib/roles';
 
 const STACK_HIGHLIGHTS = [
   { icon: FileSearch, label: 'Hybrid Search (BM25 + Vector)' },
@@ -130,9 +131,9 @@ export function LandingPage() {
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               {user ? (
-                <Link to="/#roles">
+                <Link to={getDashboardPath(user.platform_role)}>
                   <Button size="lg">
-                    Signed in as {user.platform_role}
+                    Go to Dashboard
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
