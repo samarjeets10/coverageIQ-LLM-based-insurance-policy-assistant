@@ -11,7 +11,7 @@ export function Navbar() {
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-[#FAFAFA]/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link to="/" className="flex items-center gap-2.5 text-slate-900">
-          <span className="text-xl font-bold tracking-tight">CoverageIQ</span>
+          <span className="text-xl font-bold tracking-tight">CoverageIQ.</span>
         </Link>
 
         <nav className="hidden items-center gap-7 text-sm text-slate-600 md:flex">
