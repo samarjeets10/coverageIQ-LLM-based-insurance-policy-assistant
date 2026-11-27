@@ -1,0 +1,88 @@
+# ==============================================================================
+# CoverageIQ - AI Service Local Git Ignore Configuration
+# Owner: Mr. Yash Shankar Nimbalkar 
+# Scope: Hybrid Retrieval, Cross-Encoder, Grounded LLM & Evaluator Agent
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Local Testing Database & Storage (Prevent conflicts with Original DB)
+# ------------------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.duckdb
+*.parquet
+data/
+db/
+test_db/
+local_storage/
+postgres_data/
+
+# ------------------------------------------------------------------------------
+# 2. Python Bytecode, Compilations & Runtime Caches
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ------------------------------------------------------------------------------
+# 3. Automated Testing, Pytest & Coverage Reports
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ------------------------------------------------------------------------------
+# 4. Local Environment Secrets & Configuration
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ------------------------------------------------------------------------------
+# 5. ML Models, Checkpoints & HuggingFace Weights (Keep repository light)
+# ------------------------------------------------------------------------------
+models/
+checkpoints/
+huggingface/
+.cache/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+
+# ------------------------------------------------------------------------------
+# 6. Test PDFs, Scanned Policies & Temporary Ingestion Artifacts
+# ------------------------------------------------------------------------------
+*.pdf
+uploads/
+temp/
+tmp/
+scratch/
+
+# ------------------------------------------------------------------------------
+# 7. Virtual Environments
+# ------------------------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+
+# ------------------------------------------------------------------------------
+# 8. Editor & OS Specific Files
+# ------------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
