@@ -2,18 +2,24 @@ require('dotenv').config();
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 
-const pool = new Pool({
+const DB_NAME = process.env.DB_NAME || 'coverageiq_db';
+
+const baseConfig = {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT || 5432),
-    database: process.env.DB_NAME || 'coverageiq_db',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
     ssl: process.env.DB_SSL === 'true'
         ? { rejectUnauthorized: true }
         : false,
     connectionTimeoutMillis: 5000,
+};
+
+const pool = new Pool({
+    ...baseConfig,
+    database: DB_NAME,
     idleTimeoutMillis: 30000,
     max: 10,
 });
@@ -37,7 +43,35 @@ async function checkDatabaseConnection() {
     return result.rows[0];
 }
 
+async function ensureDatabaseExists() {
+    if (!/^[a-zA-Z0-9_]+$/.test(DB_NAME)) {
+        throw new Error(`Invalid database name: ${DB_NAME}`);
+    }
+
+    const client = new Client({
+        ...baseConfig,
+        database: 'postgres',
+    });
+
+    await client.connect();
+
+    try {
+        const existing = await client.query(
+            'SELECT 1 FROM pg_database WHERE datname = $1',
+            [DB_NAME]
+        );
+
+        if (existing.rowCount === 0) {
+            await client.query(`CREATE DATABASE "${DB_NAME}"`);
+            console.log(`Created database: ${DB_NAME}`);
+        }
+    } finally {
+        await client.end();
+    }
+}
+
 async function runMigrations({ closePool = false } = {}) {
+    await ensureDatabaseExists();
     const client = await pool.connect();
 
     try {
@@ -112,6 +146,7 @@ if (require.main === module) {
 module.exports = {
     pool,
     query,
+    ensureDatabaseExists,
     checkDatabaseConnection,
     runMigrations,
 };

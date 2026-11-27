@@ -6,10 +6,22 @@ const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const errorHandler = require('./middlewares/error.middleware');
 
+const allowedOrigins = (
+    process.env.CORS_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173'
+)
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 const app = express();
 
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || true,
+    origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
 }));
 

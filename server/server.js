@@ -4,6 +4,7 @@ require('dotenv').config();
 const app = require('./src/app');
 const {
     pool,
+    ensureDatabaseExists,
     checkDatabaseConnection,
     runMigrations,
 } = require('./src/config/db');
@@ -12,6 +13,7 @@ const PORT = Number(process.env.SERVER_PORT || 8000);
 
 async function startServer() {
     try {
+        await ensureDatabaseExists();
         const database = await checkDatabaseConnection();
 
         console.log(
