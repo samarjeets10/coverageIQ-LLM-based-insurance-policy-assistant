@@ -423,6 +423,17 @@ class PaddleOCREngine(BaseOCREngine):
                 engine="paddleocr"
             )
 
+    def close(self) -> None:
+        """Release lazily initialized PaddleOCR models cleanly and trigger GC."""
+        import gc
+
+        model = self._ocr
+        self._ocr = None
+        self._init_attempted = False
+        if model is not None:
+            del model
+            gc.collect()
+
 
 class MockOCREngine(BaseOCREngine):
     """

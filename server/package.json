@@ -5,7 +5,12 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "npx nodemon server.js"
+    "start": "npx nodemon server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "migrate:up": "node-pg-migrate up -d MIGRATION_DATABASE_URL -m migrations -t pgmigrations",
+    "migrate:down": "node-pg-migrate down -d MIGRATION_DATABASE_URL -m migrations -t pgmigrations",
+    "migrate:redo": "node-pg-migrate redo -d MIGRATION_DATABASE_URL -m migrations -t pgmigrations",
+    "migrate:create": "node-pg-migrate create -m migrations"
   },
   "keywords": [],
   "type": "commonjs",
@@ -17,7 +22,10 @@
     "express": "^5.3.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
-    "pdf-parser": "^1.0.5"
+    "node-pg-migrate": "^9.0.0",
+    "pdf-parser": "^1.0.5",
+    "pg": "^8.23.1",
+    "redis": "^6.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

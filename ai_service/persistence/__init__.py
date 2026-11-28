@@ -1,0 +1,65 @@
+from .exceptions import (
+    DatabaseAuthorizationError,
+    DatabaseConfigurationError,
+    DatabaseConnectionError,
+    DatabaseConstraintError,
+    DatabaseError,
+    DatabaseMigrationError,
+    DatabaseNotFoundError,
+    DatabaseValidationError,
+    translate_psycopg_error,
+)
+from .models import (
+    AuthorizedPolicyTarget,
+    ChunkEmbeddingRecord,
+    IngestionJobRecord,
+    PersistedChunkRecord,
+    PolicyDocumentRecord,
+    PolicyRecord,
+    SparseSearchHit,
+    VectorSearchHit,
+)
+from .pool import (
+    PostgresPoolManager,
+    REQUIRED_SCHEMA_TABLES,
+    close_db_pool,
+    get_db_pool_manager,
+    init_db_pool,
+)
+from .repositories import PolicyKnowledgeRepository
+from .security import (
+    AuthorizedScope,
+    build_policy_scope_predicate,
+    redact_dsn,
+    validate_authorized_scope,
+)
+
+__all__ = [
+    "AuthorizedPolicyTarget",
+    "AuthorizedScope",
+    "ChunkEmbeddingRecord",
+    "DatabaseAuthorizationError",
+    "DatabaseConfigurationError",
+    "DatabaseConnectionError",
+    "DatabaseConstraintError",
+    "DatabaseError",
+    "DatabaseMigrationError",
+    "DatabaseNotFoundError",
+    "DatabaseValidationError",
+    "IngestionJobRecord",
+    "PersistedChunkRecord",
+    "PolicyDocumentRecord",
+    "PolicyKnowledgeRepository",
+    "PolicyRecord",
+    "PostgresPoolManager",
+    "REQUIRED_SCHEMA_TABLES",
+    "SparseSearchHit",
+    "VectorSearchHit",
+    "build_policy_scope_predicate",
+    "close_db_pool",
+    "get_db_pool_manager",
+    "init_db_pool",
+    "redact_dsn",
+    "translate_psycopg_error",
+    "validate_authorized_scope",
+]

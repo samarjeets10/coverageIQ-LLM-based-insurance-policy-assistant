@@ -146,6 +146,21 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8001/ai/ask" -Method Post -ContentType 
 
 ---
 
+### Method 4: Run Celery + Redis Asynchronous Ingestion Worker
+
+1. **Start Redis** (`redis:7-alpine`):
+   ```bash
+   docker run -d --name coverageiq-redis -p 127.0.0.1:6379:6379 redis:7-alpine
+   ```
+2. **Start Celery worker (`solo` pool, concurrency `1` for 4 GB VRAM GPU safety):**
+   ```bash
+   python -m celery -A ai_service.workers.celery_app:celery_app worker -P solo -c 1 -Q ingestion,ocr --loglevel=info
+   ```
+   - `CELERY_WORKER_CONCURRENCY=1` and `CELERY_INGESTION_EMBEDDING_BATCH_SIZE=1` reuse one lazy `BgeM3Embedder` per worker process safely on 4 GB VRAM GPUs.
+   - Binary PDFs remain outside Redis and PostgreSQL behind `DocumentStorageBackend` (`ai_service/storage/document_store.py`).
+
+---
+
 ## 4. Structured Output Contract
 
 Every verified answer adheres to this strict JSON format:

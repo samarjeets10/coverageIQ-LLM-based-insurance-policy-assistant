@@ -5,6 +5,7 @@ class ScopeContext(BaseModel):
     user_id: Optional[str] = None
     role: Optional[str] = "user"
     owner_scope: Optional[str] = None
+    allow_catalog_read: bool = False
 
 class AskQueryRequest(BaseModel):
     policy_id: str = Field(..., description="Target policy ID to query against")

@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -21,6 +22,15 @@ _OPTIONAL_CONFIG_VARS = (
     "REDIS_URL",
     "CELERY_BROKER_URL",
     "CELERY_RESULT_BACKEND",
+    "CELERY_INGESTION_QUEUE",
+    "CELERY_OCR_QUEUE",
+    "CELERY_WORKER_CONCURRENCY",
+    "CELERY_INGESTION_EMBEDDING_BATCH_SIZE",
+    "CELERY_TASK_MAX_RETRIES",
+    "CELERY_TASK_RETRY_BACKOFF_BASE",
+    "CELERY_TASK_RETRY_BACKOFF_MAX",
+    "CELERY_TASK_SOFT_TIME_LIMIT",
+    "CELERY_TASK_TIME_LIMIT",
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL_NAME",
     "EMBEDDING_DIM",
@@ -37,6 +47,8 @@ _OPTIONAL_CONFIG_VARS = (
     "NVIDIA_MAX_TOKENS",
     "NVIDIA_TEMPERATURE",
     "GEMINI_API_KEY",
+    "PGVECTOR_HNSW_EF_SEARCH",
+    "PGVECTOR_HNSW_ITERATIVE_SCAN",
 )
 
 
@@ -76,9 +88,18 @@ def test_phase4_configuration_defaults_without_loading_model(monkeypatch):
     assert cfg.EMBEDDING_DEVICE == "auto"
     assert cfg.EMBEDDING_NORMALIZE is True
     assert cfg.EMBEDDING_LOCAL_FILES_ONLY is False
+    assert cfg.PGVECTOR_HNSW_EF_SEARCH == 40
+    assert cfg.PGVECTOR_HNSW_ITERATIVE_SCAN == "relaxed_order"
 
-    # Config initialization must never import FlagEmbedding weights
-    assert "FlagEmbedding" not in sys.modules
+    # Config initialization in a clean process must never import FlagEmbedding weights
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from ai_service.config import Settings; Settings(); assert 'FlagEmbedding' not in sys.modules",
+        ],
+        check=True,
+    )
 
 
 def test_phase4_env_variable_overrides_and_secret_redaction(monkeypatch):
@@ -177,6 +198,10 @@ def test_invalid_pool_device_and_port_rejected(monkeypatch):
         Settings(POSTGRES_POOL_TIMEOUT=0.0)
     with pytest.raises(ValidationError):
         Settings(PORT=0)
+    with pytest.raises(ValidationError):
+        Settings(PGVECTOR_HNSW_EF_SEARCH=0)
+    with pytest.raises(ValidationError):
+        Settings(PGVECTOR_HNSW_ITERATIVE_SCAN="invalid_mode")
     monkeypatch.setenv("EMBEDDING_NORMALIZE", "definitely")
     with pytest.raises(ValueError):
         Settings()
@@ -211,6 +236,49 @@ def test_node_gateway_and_python_ai_service_port_separation(monkeypatch):
     assert "SERVER_PORT=8000" in node_env_ex
     assert "AI_SERVICE_URL=http://127.0.0.1:8001" in node_env_ex
     assert "PORT=8001" in ai_env_ex
+
+
+def test_phase4_celery_worker_configuration_defaults_overrides_and_validation(monkeypatch):
+    _clear_config_env(monkeypatch)
+    cfg = Settings()
+    assert cfg.CELERY_INGESTION_QUEUE == "ingestion"
+    assert cfg.CELERY_OCR_QUEUE == "ocr"
+    assert cfg.CELERY_WORKER_CONCURRENCY == 1
+    assert cfg.CELERY_INGESTION_EMBEDDING_BATCH_SIZE == 1
+    assert cfg.CELERY_TASK_MAX_RETRIES == 3
+    assert cfg.CELERY_TASK_RETRY_BACKOFF_BASE == 5
+    assert cfg.CELERY_TASK_RETRY_BACKOFF_MAX == 300
+    assert cfg.CELERY_TASK_SOFT_TIME_LIMIT == 300
+    assert cfg.CELERY_TASK_TIME_LIMIT == 360
+
+    monkeypatch.setenv("CELERY_INGESTION_QUEUE", "custom_ingestion")
+    monkeypatch.setenv("CELERY_OCR_QUEUE", "custom_ocr")
+    monkeypatch.setenv("CELERY_WORKER_CONCURRENCY", "2")
+    monkeypatch.setenv("CELERY_INGESTION_EMBEDDING_BATCH_SIZE", "4")
+    monkeypatch.setenv("CELERY_TASK_MAX_RETRIES", "5")
+    monkeypatch.setenv("CELERY_TASK_RETRY_BACKOFF_BASE", "10")
+    monkeypatch.setenv("CELERY_TASK_RETRY_BACKOFF_MAX", "120")
+    monkeypatch.setenv("CELERY_TASK_SOFT_TIME_LIMIT", "180")
+    monkeypatch.setenv("CELERY_TASK_TIME_LIMIT", "240")
+    custom = Settings()
+    assert custom.CELERY_INGESTION_QUEUE == "custom_ingestion"
+    assert custom.CELERY_OCR_QUEUE == "custom_ocr"
+    assert custom.CELERY_WORKER_CONCURRENCY == 2
+    assert custom.CELERY_INGESTION_EMBEDDING_BATCH_SIZE == 4
+    assert custom.CELERY_TASK_MAX_RETRIES == 5
+    assert custom.CELERY_TASK_RETRY_BACKOFF_BASE == 10
+    assert custom.CELERY_TASK_RETRY_BACKOFF_MAX == 120
+    assert custom.CELERY_TASK_SOFT_TIME_LIMIT == 180
+    assert custom.CELERY_TASK_TIME_LIMIT == 240
+
+    with pytest.raises(ValidationError):
+        Settings(CELERY_WORKER_CONCURRENCY=0)
+    with pytest.raises(ValidationError):
+        Settings(CELERY_INGESTION_EMBEDDING_BATCH_SIZE=0)
+    with pytest.raises(ValidationError):
+        Settings(CELERY_TASK_MAX_RETRIES=-1)
+    with pytest.raises(ValidationError):
+        Settings(CELERY_TASK_SOFT_TIME_LIMIT=120, CELERY_TASK_TIME_LIMIT=60)
 
 
 def test_existing_nemotron_configuration_regression(monkeypatch):

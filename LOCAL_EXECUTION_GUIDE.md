@@ -123,6 +123,22 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8001/ai/ask" -Method Post -ContentType 
 
 ---
 
+### Method 4: Run Celery + Redis Asynchronous Ingestion Worker
+
+1. **Start Redis** (for local development / testing):
+   ```bash
+   docker run -d --name coverageiq-redis -p 127.0.0.1:6379:6379 redis:7-alpine
+   ```
+2. **Start Celery worker (`solo` pool, concurrency `1` for 4 GB VRAM GPU safety):**
+   ```bash
+   python -m celery -A ai_service.workers.celery_app:celery_app worker -P solo -c 1 -Q ingestion,ocr --loglevel=info
+   ```
+   - `CELERY_WORKER_CONCURRENCY=1` and `CELERY_INGESTION_EMBEDDING_BATCH_SIZE=1` prevent CUDA OOM on 4 GB VRAM GPUs while reusing one lazy `BgeM3Embedder` per worker process.
+   - Binary PDFs stay outside Redis and PostgreSQL behind `DocumentStorageBackend` (`ai_service/storage/document_store.py`, backed by `POLICY_UPLOAD_ROOT` locally and replaceable by S3/object storage in multi-host setups).
+   - Producers enqueue JSON messages for `coverageiq.ingestion.ingest_policy_document` on queue `ingestion` (`CELERY_INGESTION_QUEUE`) containing only `job_id`, `policy_id`, `document_id`, `owner_scope`, and optional `storage_ref` / `expected_sha256` / `request_id`.
+
+---
+
 ## 4. Structured Output Contract
 
 Every verified answer adheres to this strict JSON format:

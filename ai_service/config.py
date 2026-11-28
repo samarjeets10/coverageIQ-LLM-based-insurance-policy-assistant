@@ -78,9 +78,18 @@ def _redact_url_credentials(url: str) -> str:
     return url
 
 
+_NON_TEST_ENVS = ("production", "staging", "prod", "stage")
+
+
+def _resolve_app_env() -> str:
+    raw = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or os.getenv("NODE_ENV") or "development"
+    return raw.strip().lower() or "development"
+
+
 class Settings(BaseModel):
     # Service settings (Node gateway runs on 8000; internal FastAPI AI service runs on 8001)
     SERVICE_NAME: str = "coverageIQ-ai-service"
+    APP_ENV: str = Field(default_factory=_resolve_app_env)
     PORT: int = Field(default_factory=lambda: _env_int("PORT", 8001))
     HOST: str = Field(default_factory=lambda: _env_str("HOST", "127.0.0.1"))
     DEBUG: bool = Field(default_factory=lambda: _env_bool("DEBUG", True))
@@ -115,6 +124,25 @@ class Settings(BaseModel):
         default_factory=lambda: _env_optional_str("CELERY_RESULT_BACKEND")
         or _env_str("REDIS_URL", "redis://localhost:6379/0")
     )
+    CELERY_INGESTION_QUEUE: str = Field(default_factory=lambda: _env_str("CELERY_INGESTION_QUEUE", "ingestion"))
+    CELERY_OCR_QUEUE: str = Field(default_factory=lambda: _env_str("CELERY_OCR_QUEUE", "ocr"))
+    CELERY_WORKER_CONCURRENCY: int = Field(
+        default_factory=lambda: _env_int("CELERY_WORKER_CONCURRENCY", 1)
+    )
+    CELERY_INGESTION_EMBEDDING_BATCH_SIZE: int = Field(
+        default_factory=lambda: _env_int("CELERY_INGESTION_EMBEDDING_BATCH_SIZE", 1)
+    )
+    CELERY_TASK_MAX_RETRIES: int = Field(default_factory=lambda: _env_int("CELERY_TASK_MAX_RETRIES", 3))
+    CELERY_TASK_RETRY_BACKOFF_BASE: int = Field(
+        default_factory=lambda: _env_int("CELERY_TASK_RETRY_BACKOFF_BASE", 5)
+    )
+    CELERY_TASK_RETRY_BACKOFF_MAX: int = Field(
+        default_factory=lambda: _env_int("CELERY_TASK_RETRY_BACKOFF_MAX", 300)
+    )
+    CELERY_TASK_SOFT_TIME_LIMIT: int = Field(
+        default_factory=lambda: _env_int("CELERY_TASK_SOFT_TIME_LIMIT", 300)
+    )
+    CELERY_TASK_TIME_LIMIT: int = Field(default_factory=lambda: _env_int("CELERY_TASK_TIME_LIMIT", 360))
 
     # Embedding Settings (BAAI/bge-m3, 1024-dim; weights loaded lazily by embedding service only)
     EMBEDDING_PROVIDER: str = Field(default_factory=lambda: _env_str("EMBEDDING_PROVIDER", "bge-m3"))
@@ -156,6 +184,10 @@ class Settings(BaseModel):
     RETRY_TOP_K_INCREMENT: int = 3
     MAX_RETRIES: int = 2
     CONFIDENCE_THRESHOLD: float = 0.70
+    PGVECTOR_HNSW_EF_SEARCH: int = Field(default_factory=lambda: _env_int("PGVECTOR_HNSW_EF_SEARCH", 40))
+    PGVECTOR_HNSW_ITERATIVE_SCAN: str = Field(
+        default_factory=lambda: _env_str("PGVECTOR_HNSW_ITERATIVE_SCAN", "relaxed_order")
+    )
 
     # Cross-encoder model
     RERANKER_MODEL_NAME: str = os.getenv("RERANKER_MODEL_NAME", "cross-encoder/ms-marco-MiniLM-L-6-v2")
@@ -172,11 +204,37 @@ class Settings(BaseModel):
     OCR_LANG: str = os.getenv("OCR_LANG", "en")
     OCR_USE_ANGLE_CLS: bool = True
 
+    @property
+    def is_non_test_env(self) -> bool:
+        """Return True when running in production/staging or with DEBUG explicitly disabled."""
+        return self.APP_ENV in _NON_TEST_ENVS or not self.DEBUG
+
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
         """Validate and normalize service, database, and embedding configuration values."""
+        self.APP_ENV = (self.APP_ENV or "development").strip().lower() or "development"
+
         if self.PORT < 1 or self.PORT > 65535:
             raise ValueError("PORT must be between 1 and 65535.")
+
+        if self.is_non_test_env:
+            explicit_mock_env = os.getenv("USE_MOCK_STORAGE") is not None or "USE_MOCK_STORAGE" in self.model_fields_set
+            if not explicit_mock_env:
+                raise ValueError(
+                    "USE_MOCK_STORAGE must be explicitly set to 'false' in non-test environments."
+                )
+            if self.USE_MOCK_STORAGE:
+                raise ValueError(
+                    "USE_MOCK_STORAGE=true is forbidden in non-test environments; PostgreSQL persistence is required."
+                )
+            if self.LLM_PROVIDER.strip().lower() in ("offline", "mock"):
+                raise ValueError(
+                    f"LLM_PROVIDER={self.LLM_PROVIDER!r} is forbidden in non-test environments."
+                )
+            if self.EMBEDDING_PROVIDER.strip().lower() == "offline":
+                raise ValueError(
+                    "EMBEDDING_PROVIDER='offline' is forbidden in non-test environments."
+                )
 
         provider = self.EMBEDDING_PROVIDER.strip().lower()
         if provider not in ("bge-m3", "offline"):
@@ -208,6 +266,25 @@ class Settings(BaseModel):
             raise ValueError("POSTGRES_POOL_MAX_SIZE cannot be less than POSTGRES_POOL_MIN_SIZE.")
         if self.POSTGRES_POOL_TIMEOUT <= 0:
             raise ValueError("POSTGRES_POOL_TIMEOUT must be positive.")
+
+        if self.PGVECTOR_HNSW_EF_SEARCH < 1:
+            raise ValueError("PGVECTOR_HNSW_EF_SEARCH must be at least 1.")
+
+        iter_scan = self.PGVECTOR_HNSW_ITERATIVE_SCAN.strip().lower()
+        if iter_scan not in ("off", "relaxed_order", "strict_order"):
+            raise ValueError("PGVECTOR_HNSW_ITERATIVE_SCAN must be 'off', 'relaxed_order', or 'strict_order'.")
+        self.PGVECTOR_HNSW_ITERATIVE_SCAN = iter_scan
+
+        if self.CELERY_WORKER_CONCURRENCY < 1:
+            raise ValueError("CELERY_WORKER_CONCURRENCY must be at least 1.")
+        if self.CELERY_INGESTION_EMBEDDING_BATCH_SIZE < 1:
+            raise ValueError("CELERY_INGESTION_EMBEDDING_BATCH_SIZE must be at least 1.")
+        if self.CELERY_TASK_MAX_RETRIES < 0:
+            raise ValueError("CELERY_TASK_MAX_RETRIES must be non-negative.")
+        if self.CELERY_TASK_RETRY_BACKOFF_BASE < 0 or self.CELERY_TASK_RETRY_BACKOFF_MAX < 0:
+            raise ValueError("Celery retry backoff settings must be non-negative.")
+        if self.CELERY_TASK_SOFT_TIME_LIMIT < 1 or self.CELERY_TASK_TIME_LIMIT < self.CELERY_TASK_SOFT_TIME_LIMIT:
+            raise ValueError("CELERY_TASK_TIME_LIMIT must be >= CELERY_TASK_SOFT_TIME_LIMIT >= 1.")
 
         return self
 

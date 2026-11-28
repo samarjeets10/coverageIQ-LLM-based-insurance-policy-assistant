@@ -1,0 +1,86 @@
+{
+  "train": {
+    "ndcg@1": 1.0,
+    "ndcg@3": 0.9964715885261446,
+    "ndcg@5": 0.999376159964308,
+    "ndcg@10": 0.9983658280666239,
+    "num_groups": 38,
+    "num_rows": 461
+  },
+  "validation": {
+    "ndcg@1": 1.0,
+    "ndcg@3": 1.0,
+    "ndcg@5": 1.0,
+    "ndcg@10": 0.9923971316756499,
+    "num_groups": 9,
+    "num_rows": 135
+  },
+  "test": {
+    "ndcg@1": 1.0,
+    "ndcg@3": 1.0,
+    "ndcg@5": 0.9916695188881053,
+    "ndcg@10": 0.9927499036718517,
+    "num_groups": 9,
+    "num_rows": 124
+  },
+  "baseline_random": {
+    "ndcg@1": 0.7161904761904762,
+    "ndcg@3": 0.7284665503633464,
+    "ndcg@5": 0.724776686950019,
+    "ndcg@10": 0.8103281357400265,
+    "num_groups": 9,
+    "num_rows": 124
+  },
+  "baseline_cheapest_policy": {
+    "ndcg@1": 0.746031746031746,
+    "ndcg@3": 0.7233317803860094,
+    "ndcg@5": 0.7389000586038388,
+    "ndcg@10": 0.8294446638056953,
+    "num_groups": 9,
+    "num_rows": 124
+  },
+  "baseline_suitability": {
+    "ndcg@1": 1.0,
+    "ndcg@3": 1.0,
+    "ndcg@5": 1.0,
+    "ndcg@10": 1.0,
+    "num_groups": 9,
+    "num_rows": 124
+  },
+  "feature_importance_top15": {
+    "coverage_to_requirement_ratio": 132.28272502869368,
+    "claim_settlement_ratio": 131.9817555611953,
+    "total_benefit_count": 112.7828668653965,
+    "annual_premium": 41.57459106016904,
+    "coverage_headroom": 25.207306191325188,
+    "affordability_score": 16.820446758996695,
+    "annual_income": 15.48048283555545,
+    "sum_insured": 10.335159055888653,
+    "affordability_margin": 5.691694378852844,
+    "monthly_premium": 4.782172358594835,
+    "remaining_eligible_years": 4.447750776540488,
+    "age_eligibility_margin": 3.701747046667151,
+    "roadside_assistance_indicator": 3.5238659977912903,
+    "premium_payment_term_years": 3.3769597709178925,
+    "premium_to_budget_ratio": 3.2019319254904985
+  },
+  "cross_validation": {
+    "n_splits": 5,
+    "mean_ndcg@3": 0.9945903190105494,
+    "std_ndcg@3": 0.0053043286045700395,
+    "mean_ndcg@5": 0.9973201683468261,
+    "std_ndcg@5": 0.0033447460302593207,
+    "per_category_ndcg@3": {
+      "car": 0.9808457662847854,
+      "health": 0.9971038224709057,
+      "life": 1.0,
+      "term": 1.0
+    },
+    "per_category_ndcg@5": {
+      "car": 0.9971663786170618,
+      "health": 0.9975659921626109,
+      "life": 1.0,
+      "term": 0.994644690713782
+    }
+  }
+}

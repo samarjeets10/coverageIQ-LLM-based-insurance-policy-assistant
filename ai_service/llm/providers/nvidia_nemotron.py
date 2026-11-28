@@ -266,6 +266,7 @@ class NvidiaNemotronProvider:
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        enable_thinking: Optional[bool] = None,
     ) -> NvidiaCompletionResult:
         """
         Sends a non-streaming /chat/completions request and returns content plus usage metadata.
@@ -296,6 +297,8 @@ class NvidiaNemotronProvider:
             "max_tokens": eff_max_tokens,
             "stream": False,
         }
+        if enable_thinking is not None:
+            payload["chat_template_kwargs"] = {"enable_thinking": bool(enable_thinking)}
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",

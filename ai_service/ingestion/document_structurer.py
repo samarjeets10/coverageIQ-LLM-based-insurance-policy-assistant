@@ -369,6 +369,7 @@ class DocumentStructurer:
 
                         raw_headers = [str(h).strip() if h is not None else "" for h in (tab.header.names or [])]
                         raw_extract = tab.extract() or []
+                        raw_rows = tab.rows if hasattr(tab, "rows") else []
 
                         # Guard against decorative page border frames detected as pseudo-tables:
                         # Full-page rectangular boxes where PyMuPDF treats paragraph text as column headers
@@ -379,33 +380,73 @@ class DocumentStructurer:
                             logger.info(f"Skipping decorative page border frame on page {page.page_number} detected as pseudo-table.")
                             continue
 
-                        headers = [h for h in raw_headers if h]
+                        num_cols = max([len(raw_headers)] + [len(r) for r in raw_extract], default=0)
+                        kept_col_indices: List[int] = []
+                        for col_i in range(num_cols):
+                            hdr_empty = col_i >= len(raw_headers) or raw_headers[col_i] == ""
+                            rows_empty = all(
+                                col_i >= len(r) or r[col_i] is None or str(r[col_i]).strip() == ""
+                                for r in raw_extract
+                            )
+                            if hdr_empty and rows_empty:
+                                col_widths = [
+                                    float(rg.cells[col_i][2]) - float(rg.cells[col_i][0])
+                                    for rg in raw_rows
+                                    if hasattr(rg, "cells") and col_i < len(rg.cells) and rg.cells[col_i] is not None
+                                ]
+                                # Drop phantom divider sliver columns (double-drawn vector borders <= 6pt wide)
+                                # while preserving genuine empty data columns.
+                                if col_widths and max(col_widths) <= 6.0:
+                                    continue
+                            kept_col_indices.append(col_i)
+
+                        if not kept_col_indices and num_cols > 0:
+                            kept_col_indices = list(range(num_cols))
+
+                        filtered_headers = [
+                            raw_headers[col_i] if col_i < len(raw_headers) else ""
+                            for col_i in kept_col_indices
+                        ]
+                        headers = filtered_headers if any(filtered_headers) else []
                         data_rows: List[List[Optional[str]]] = []
 
                         start_row_idx = 0
-                        if raw_extract and headers and len(raw_extract[0]) == len(headers):
-                            first_row_cleaned = [str(c).strip() if c is not None else "" for c in raw_extract[0]]
-                            if first_row_cleaned == raw_headers:
+                        if raw_extract and headers:
+                            first_row_cleaned = [
+                                str(raw_extract[0][col_i]).strip()
+                                if (col_i < len(raw_extract[0]) and raw_extract[0][col_i] is not None)
+                                else ""
+                                for col_i in kept_col_indices
+                            ]
+                            if first_row_cleaned == headers:
                                 start_row_idx = 1
 
                         for r in raw_extract[start_row_idx:]:
-                            cleaned_row = [str(c).strip() if c is not None else None for c in r]
+                            cleaned_row = [
+                                str(r[col_i]).strip()
+                                if (col_i < len(r) and r[col_i] is not None)
+                                else None
+                                for col_i in kept_col_indices
+                            ]
                             if any(c for c in cleaned_row):
                                 data_rows.append(cleaned_row)
 
                         cells: List[StructuredTableCell] = []
-                        raw_rows = tab.rows if hasattr(tab, "rows") else []
+                        kept_set = set(kept_col_indices)
 
-                        # Header cells with bounding boxes and colspans
+                        # Header cells with geometry (preserve original PyMuPDF col mapping after sliver stripping)
                         if headers:
                             hdr_cells = raw_rows[0].cells if (raw_rows and len(raw_rows) > 0) else []
                             for c_idx, h_text in enumerate(headers):
+                                orig_col = kept_col_indices[c_idx]
                                 cell_bbox = None
                                 colspan = 1
-                                if c_idx < len(hdr_cells) and hdr_cells[c_idx] is not None:
-                                    coords = hdr_cells[c_idx]
+                                if orig_col < len(hdr_cells) and hdr_cells[orig_col] is not None:
+                                    coords = hdr_cells[orig_col]
                                     cell_bbox = BoundingBox(x0=float(coords[0]), y0=float(coords[1]), x1=float(coords[2]), y1=float(coords[3]))
-                                    for next_c in range(c_idx + 1, len(hdr_cells)):
+                                    for next_c in range(orig_col + 1, len(hdr_cells)):
+                                        if next_c not in kept_set:
+                                            continue
                                         if hdr_cells[next_c] is None:
                                             colspan += 1
                                         else:
@@ -429,12 +470,15 @@ class DocumentStructurer:
                             row_geom = raw_rows[actual_row_idx].cells if actual_row_idx < len(raw_rows) else []
 
                             for c_idx, c_val in enumerate(r_data):
+                                orig_col = kept_col_indices[c_idx]
                                 cell_bbox = None
                                 colspan = 1
-                                if c_idx < len(row_geom) and row_geom[c_idx] is not None:
-                                    coords = row_geom[c_idx]
+                                if orig_col < len(row_geom) and row_geom[orig_col] is not None:
+                                    coords = row_geom[orig_col]
                                     cell_bbox = BoundingBox(x0=float(coords[0]), y0=float(coords[1]), x1=float(coords[2]), y1=float(coords[3]))
-                                    for next_c in range(c_idx + 1, len(row_geom)):
+                                    for next_c in range(orig_col + 1, len(row_geom)):
+                                        if next_c not in kept_set:
+                                            continue
                                         if row_geom[next_c] is None:
                                             colspan += 1
                                         else:

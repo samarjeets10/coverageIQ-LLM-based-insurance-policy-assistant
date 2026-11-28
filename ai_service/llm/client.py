@@ -26,6 +26,19 @@ class LLMValidationError(LLMGenerationError):
     """Raised when parsed LLM output fails schema, decision, or citation validation."""
 
 
+class ExternalProviderError(Exception):
+    """Raised on sanitized failures from a configured external LLM provider (e.g., Gemini)."""
+
+    def __init__(self, message: str, *, status_code: Optional[int] = None, is_timeout: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.is_timeout = is_timeout
+
+
+class ExternalProviderConfigurationError(ExternalProviderError):
+    """Raised when an external LLM provider lacks valid credentials or SDK setup."""
+
+
 _CODE_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL | re.IGNORECASE)
 
 
@@ -81,6 +94,12 @@ class LLMClient:
         self._genai_client = None
         self._nvidia_provider: Optional[NvidiaNemotronProvider] = None
         self._owns_nvidia_provider = nvidia_provider is None
+        self._app_settings = cfg
+
+        if cfg.is_non_test_env and self.provider_name in ("offline", "mock"):
+            raise NvidiaConfigurationError(
+                f"LLM_PROVIDER={self.provider_name!r} is forbidden in non-test environments."
+            )
 
         if self.provider_name == "nvidia":
             self._nvidia_provider = nvidia_provider or NvidiaNemotronProvider(
@@ -92,16 +111,22 @@ class LLMClient:
             self.model = self._nvidia_provider.model
             logger.info("Initialized LLMClient with NVIDIA Nemotron provider (model=%s)", self.model)
         elif self.provider_name == "gemini":
-            self.api_key = api_key or cfg.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+            resolved_key = api_key or os.getenv("GEMINI_API_KEY") or cfg.GEMINI_API_KEY
+            self.api_key = None  # Never store/expose API key on LLMClient
             self.model = model or cfg.GEMINI_MODEL
-            if self.api_key:
-                try:
-                    from google import genai
-                    self._genai_client = genai.Client(api_key=self.api_key)
-                    logger.info("Initialized Google Gemini Client with model %s", self.model)
-                except Exception as e:
-                    logger.warning("Could not initialize google-genai client: %s", e)
-                    self._genai_client = None
+            if not resolved_key or not str(resolved_key).strip():
+                raise ExternalProviderConfigurationError(
+                    "GEMINI_API_KEY must be configured when LLM_PROVIDER='gemini'."
+                )
+            try:
+                from google import genai
+                self._genai_client = genai.Client(api_key=str(resolved_key).strip())
+                logger.info("Initialized Google Gemini Client with model %s", self.model)
+            except Exception as e:
+                logger.error("Could not initialize google-genai client: %s", type(e).__name__)
+                raise ExternalProviderConfigurationError(
+                    "Configured Gemini provider could not be initialized."
+                ) from e
         elif self.provider_name in ("offline", "mock"):
             self.api_key = None
             self.model = "offline-deterministic"
@@ -121,7 +146,15 @@ class LLMClient:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()
 
-    def generate_json(self, system_instruction: str, prompt: str) -> Dict[str, Any]:
+    def generate_json(
+        self,
+        system_instruction: str,
+        prompt: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        enable_thinking: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         """
         Generates and parses structured JSON using the configured LLM provider.
         When LLM_PROVIDER=nvidia, provider failures and JSON parse errors propagate
@@ -132,9 +165,17 @@ class LLMClient:
         if self.provider_name == "nvidia":
             assert self._nvidia_provider is not None
             try:
+                complete_kwargs: Dict[str, Any] = {}
+                if temperature is not None:
+                    complete_kwargs["temperature"] = temperature
+                if max_tokens is not None:
+                    complete_kwargs["max_tokens"] = max_tokens
+                if enable_thinking is not None:
+                    complete_kwargs["enable_thinking"] = enable_thinking
                 result = self._nvidia_provider.complete(
                     system_prompt=system_instruction,
                     user_prompt=prompt,
+                    **complete_kwargs,
                 )
             except NvidiaResponseError as exc:
                 self.last_metadata = {
@@ -165,7 +206,11 @@ class LLMClient:
                 )
                 raise
 
-        if self.provider_name == "gemini" and self._genai_client:
+        if self.provider_name == "gemini":
+            if not self._genai_client:
+                raise ExternalProviderConfigurationError(
+                    "Configured Gemini provider client is unavailable."
+                )
             try:
                 from google.genai import types
                 response = self._genai_client.models.generate_content(
@@ -177,13 +222,40 @@ class LLMClient:
                         response_mime_type="application/json",
                     ),
                 )
+            except TimeoutError as exc:
                 self.last_metadata = {"provider": "gemini", "model": self.model}
-                return parse_llm_json(response.text)
-            except Exception as e:
-                logger.error("Gemini generation failed: %s. Falling back to grounded rule engine.", e)
+                logger.error("Gemini generation timed out for model=%s", self.model)
+                raise ExternalProviderError(
+                    "Gemini provider request timed out.",
+                    is_timeout=True,
+                ) from exc
+            except Exception as exc:
+                self.last_metadata = {"provider": "gemini", "model": self.model}
+                err_name = type(exc).__name__
+                raw_status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+                status_int = raw_status if isinstance(raw_status, int) else None
+                is_timeout = "timeout" in err_name.lower() or "timed out" in str(exc).lower()
+                logger.error(
+                    "Gemini generation failed without offline fallback: model=%s error_type=%s status=%s",
+                    self.model,
+                    err_name,
+                    status_int,
+                )
+                raise ExternalProviderError(
+                    "Gemini provider request failed.",
+                    status_code=status_int,
+                    is_timeout=is_timeout,
+                ) from exc
 
-        # Offline deterministic synthesis only when provider is offline/gemini-unconfigured
-        self.last_metadata = {"provider": "offline", "model": "offline-deterministic"}
+            self.last_metadata = {"provider": "gemini", "model": self.model}
+            return parse_llm_json(getattr(response, "text", None) or "")
+
+        # Offline deterministic synthesis only when explicitly running in offline/mock test mode
+        if self._app_settings.is_non_test_env or self.provider_name not in ("offline", "mock"):
+            raise ExternalProviderConfigurationError(
+                "Offline synthesis cannot execute outside explicit offline/mock test mode."
+            )
+        self.last_metadata = {"provider": "offline", "model": "offline-deterministic", "mock_mode": True}
         return self._offline_grounded_synthesis(prompt)
 
     def _offline_grounded_synthesis(self, prompt: str) -> Dict[str, Any]:
@@ -216,8 +288,9 @@ class LLMClient:
         # Parse candidate chunks from evidence_text
         # Format: [i] CHUNK_ID: <cid> | PAGE: <p> | CLAUSE: <clause> | CATEGORY: <cat>\nCONTENT: <content>
         chunk_blocks = re.findall(
-            r"CHUNK_ID:\s*([^\s\|]+)\s*\|\s*PAGE:\s*(\d+)\s*\|\s*CLAUSE:\s*([^\|]+)\s*\|\s*CATEGORY:\s*([^\n]+)\s*\nCONTENT:\s*([^\n\[]+)",
+            r"CHUNK_ID:\s*([^\s\|]+)\s*\|\s*PAGE:\s*(\d+)(?:-\d+)?\s*\|\s*CLAUSE:\s*([^\|]+)\s*\|\s*CATEGORY:\s*([^\n]+)\s*\nCONTENT:\s*(.*?)(?=\n+\[\d+\]\s+CHUNK_ID:|\n+<<<END_UNTRUSTED_POLICY_EVIDENCE_DATA>>>|\Z)",
             evidence_text,
+            flags=re.DOTALL,
         )
 
         # Tokenize query

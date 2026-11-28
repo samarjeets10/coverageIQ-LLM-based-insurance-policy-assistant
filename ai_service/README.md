@@ -99,6 +99,10 @@ python -c "from ai_service.evaluator.retry_controller import ClosedRetryLoopOrch
 
 #### 1. Start the Server:
 *(Node.js gateway runs on port `8000`; internal FastAPI AI service runs on port `8001`. PostgreSQL schema migrations are owned by Node.js via `node-pg-migrate` — do not use Alembic in Python.)*
+
+##### Database & Search Notes (Checkpoint 4.2)
+- **Migrations & Roles:** Node.js owns schema migrations in `server/migrations/` using `MIGRATION_DATABASE_URL` (`coverageiq_migrator`), while runtime queries in Python (`ai_service/persistence/`) and Node use least-privilege `DATABASE_URL` (`coverageiq_runtime`, DML-only).
+- **Sparse Search Distinction:** PostgreSQL `policy_chunks.search_tsv` + GIN (`tsvector` + `ts_rank_cd`) provides indexed SQL full-text search — it is **not** true Okapi BM25 (it lacks collection-wide IDF saturation $k_1$ and average-document-length normalization $b$). Exact `BM25Okapi` scoring remains in Python (`ai_service/retrieval/bm25_retriever.py`).
 ```powershell
 python -m uvicorn ai_service.main:app --host 127.0.0.1 --port 8001 --reload
 ```
@@ -120,6 +124,22 @@ $body = @{
 
 Invoke-RestMethod -Uri "http://127.0.0.1:8001/ai/ask" -Method Post -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 5
 ```
+
+---
+
+### Method 4: Asynchronous PDF Ingestion Worker (Celery + Redis + PostgreSQL 16)
+
+1. **Start Redis broker/backend** (example isolated Docker instance):
+   ```bash
+   docker run -d --name coverageiq-redis -p 127.0.0.1:6379:6379 redis:7-alpine
+   ```
+2. **Start the single-concurrency ingestion worker** (RTX 3050 4 GB VRAM safe defaults: `-P solo -c 1`, lazy BGE-M3 model loaded once per worker process, `CELERY_INGESTION_EMBEDDING_BATCH_SIZE=1`):
+   ```bash
+   python -m celery -A ai_service.workers.celery_app:celery_app worker -P solo -c 1 -Q ingestion,ocr --loglevel=info
+   ```
+3. **Storage & Node.js enqueue contract:**
+   - Binary PDFs remain outside Redis and PostgreSQL (`DocumentStorageBackend`, local path `POLICY_UPLOAD_ROOT` by default and swappable for shared mounts or S3-compatible storage).
+   - Producers (future Node.js upload endpoint) enqueue JSON task `coverageiq.ingestion.ingest_policy_document` onto queue `ingestion` (`CELERY_INGESTION_QUEUE`) with IDs/storage refs only (`job_id`, `policy_id`, `document_id`, `owner_scope`, optional `storage_ref`, optional `expected_sha256`, optional `request_id`).
 
 ---
 

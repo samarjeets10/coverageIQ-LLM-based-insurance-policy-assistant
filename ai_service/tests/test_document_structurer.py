@@ -1263,3 +1263,66 @@ def test_legal_exceptions_and_qualifiers_preservation(temp_dir):
     norm_expected = " ".join(proviso_text.split())
     assert norm_expected in norm_actual
 
+
+# =============================================================================
+# Test 32-33: Empty-cell & blank-header table extraction regression guards
+# =============================================================================
+def test_table_preserves_genuine_wide_empty_column_and_header_alignment(temp_dir):
+    """Ensure genuine wide empty data columns are retained without duplicating headers as row 0."""
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text(fitz.Point(50, 50), "Section 4. Deductible Schedule", fontsize=12)
+
+    table_data = [
+        ["Plan", "Tier A", "Tier B"],
+        ["Basic", "", "20%"],
+        ["Plus", "", "10%"],
+    ]
+    draw_table_on_page(page, start_y=80.0, rows=table_data, col_widths=[120.0, 100.0, 100.0])
+
+    pdf_path = temp_dir / "wide_empty_col_table.pdf"
+    doc.save(pdf_path)
+    doc.close()
+
+    extracted_doc = PyMuPDFLoader().load_document(pdf_path)
+    s_doc = DocumentStructurer().structure_document(extracted_doc, pdf_path=pdf_path)
+
+    assert len(s_doc.tables) == 1
+    tbl = s_doc.tables[0]
+    assert tbl.headers == ["Plan", "Tier A", "Tier B"]
+    assert len(tbl.rows) == 2
+    assert tbl.rows[0][0] == "Basic"
+    assert tbl.rows[0][2] == "20%"
+    assert tbl.rows[1][0] == "Plus"
+    assert "| Plan | Tier A | Tier B |" in tbl.markdown
+
+
+def test_table_with_blank_header_cell_preserves_column_mapping(temp_dir):
+    """Ensure a real column with a blank header keeps aligned headers, rows, and no duplicated header row."""
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text(fitz.Point(50, 50), "Section 5. Benefit Matrix", fontsize=12)
+
+    table_data = [
+        ["Plan", "", "Co-Pay"],
+        ["Gold", "Network Only", "15%"],
+        ["Platinum", "All Hospitals", "0%"],
+    ]
+    draw_table_on_page(page, start_y=80.0, rows=table_data, col_widths=[120.0, 120.0, 90.0])
+
+    pdf_path = temp_dir / "blank_header_col_table.pdf"
+    doc.save(pdf_path)
+    doc.close()
+
+    extracted_doc = PyMuPDFLoader().load_document(pdf_path)
+    s_doc = DocumentStructurer().structure_document(extracted_doc, pdf_path=pdf_path)
+
+    assert len(s_doc.tables) == 1
+    tbl = s_doc.tables[0]
+    assert len(tbl.headers) == 3
+    assert tbl.headers[0] == "Plan"
+    assert tbl.headers[2] == "Co-Pay"
+    assert len(tbl.rows) == 2
+    assert tbl.rows[0] == ["Gold", "Network Only", "15%"]
+    assert tbl.rows[1] == ["Platinum", "All Hospitals", "0%"]
+

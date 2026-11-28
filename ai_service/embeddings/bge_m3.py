@@ -483,6 +483,32 @@ class BgeM3Embedder(BaseEmbedder):
         raw = self._encode_batch_raw(validated)
         return self._validate_and_finalize_vectors(raw, len(validated))
 
+    def close(self) -> None:
+        """Release loaded model weights and reclaim CUDA cache if allocated."""
+        import gc
+
+        with self._load_lock:
+            model = self._model
+            self._model = None
+            self._resolved_device = None
+
+        if model is not None:
+            try:
+                inner = getattr(model, "model", None)
+                if inner is not None and callable(getattr(inner, "to", None)):
+                    inner.to("cpu")
+            except Exception:
+                pass
+            del model
+
+        gc.collect()
+        try:
+            torch = self._import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
 
 def create_embedder(
     *,
